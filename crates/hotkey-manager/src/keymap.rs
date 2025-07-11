@@ -12,27 +12,31 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Mode {
     name: String,
-    mappings: HashMap<String, Action>,
+    keys: HashMap<String, Action>,
 }
 
 impl Mode {
     pub fn new(name: String) -> Self {
         Self {
             name,
-            mappings: HashMap::new(),
+            keys: HashMap::new(),
         }
     }
 
     pub fn insert(&mut self, key: String, action: Action) {
-        self.mappings.insert(key, action);
+        self.keys.insert(key, action);
     }
 
     pub fn get(&self, key: &str) -> Option<&Action> {
-        self.mappings.get(key)
+        self.keys.get(key)
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> Option<&str> {
+        if self.name.is_empty() {
+            None
+        } else {
+            Some(&self.name)
+        }
     }
 }
 
@@ -99,7 +103,7 @@ mod tests {
         assert!(matches!(main_mode.get("q"), Some(Action::Quit)));
 
         if let Some(Action::Mode(nested)) = main_mode.get("m") {
-            assert_eq!(nested.name(), "submenu");
+            assert_eq!(nested.name(), Some("submenu"));
             assert!(matches!(nested.get("x"), Some(Action::Shell(cmd)) if cmd == "exit"));
         } else {
             panic!("Expected nested mode");
@@ -153,7 +157,7 @@ mod tests {
 
         // Verify they are equal
         assert_eq!(mode, deserialized);
-        assert_eq!(deserialized.name(), "test_mode");
+        assert_eq!(deserialized.name(), Some("test_mode"));
         assert!(matches!(deserialized.get("q"), Some(Action::Quit)));
         assert!(matches!(deserialized.get("s"), Some(Action::Shell(cmd)) if cmd == "echo hello"));
     }
@@ -163,17 +167,17 @@ mod tests {
         // RON text definition of nested modes
         let ron_text = r#"(
             name: "main",
-            mappings: {
+            keys: {
                 "q": Quit,
                 "h": Shell("echo 'Hello World'"),
                 "g": Mode((
                     name: "git",
-                    mappings: {
+                    keys: {
                         "s": Shell("git status"),
                         "p": Shell("git pull"),
                         "c": Mode((
                             name: "commit",
-                            mappings: {
+                            keys: {
                                 "m": Shell("git commit -m 'Quick commit'"),
                                 "a": Shell("git commit --amend"),
                                 "p": Pop,
@@ -184,7 +188,7 @@ mod tests {
                 )),
                 "f": Mode((
                     name: "files",
-                    mappings: {
+                    keys: {
                         "l": Shell("ls -la"),
                         "t": Shell("tree"),
                         "q": Pop,
@@ -197,20 +201,20 @@ mod tests {
         let mode: Mode = ron::from_str(ron_text).unwrap();
 
         // Verify the structure
-        assert_eq!(mode.name(), "main");
+        assert_eq!(mode.name(), Some("main"));
         assert!(matches!(mode.get("q"), Some(Action::Quit)));
         assert!(matches!(mode.get("h"), Some(Action::Shell(cmd)) if cmd == "echo 'Hello World'"));
 
         // Check git submenu
         if let Some(Action::Mode(git_mode)) = mode.get("g") {
-            assert_eq!(git_mode.name(), "git");
+            assert_eq!(git_mode.name(), Some("git"));
             assert!(matches!(git_mode.get("s"), Some(Action::Shell(cmd)) if cmd == "git status"));
             assert!(matches!(git_mode.get("p"), Some(Action::Shell(cmd)) if cmd == "git pull"));
             assert!(matches!(git_mode.get("q"), Some(Action::Pop)));
 
             // Check nested commit submenu
             if let Some(Action::Mode(commit_mode)) = git_mode.get("c") {
-                assert_eq!(commit_mode.name(), "commit");
+                assert_eq!(commit_mode.name(), Some("commit"));
                 assert!(
                     matches!(commit_mode.get("m"), Some(Action::Shell(cmd)) if cmd == "git commit -m 'Quick commit'")
                 );
@@ -227,12 +231,54 @@ mod tests {
 
         // Check files submenu
         if let Some(Action::Mode(files_mode)) = mode.get("f") {
-            assert_eq!(files_mode.name(), "files");
+            assert_eq!(files_mode.name(), Some("files"));
             assert!(matches!(files_mode.get("l"), Some(Action::Shell(cmd)) if cmd == "ls -la"));
             assert!(matches!(files_mode.get("t"), Some(Action::Shell(cmd)) if cmd == "tree"));
             assert!(matches!(files_mode.get("q"), Some(Action::Pop)));
         } else {
             panic!("Expected files submenu");
+        }
+    }
+
+    #[test]
+    fn test_mode_with_empty_name() {
+        // Test creating a mode with an empty name
+        let mut mode = Mode::new("".to_string());
+        mode.insert("q".to_string(), Action::Quit);
+        mode.insert("s".to_string(), Action::Shell("ls".to_string()));
+
+        // Verify name returns None for empty string
+        assert_eq!(mode.name(), None);
+
+        // Test serialization/deserialization with empty name
+        let ron_string = ron::to_string(&mode).unwrap();
+        let deserialized: Mode = ron::from_str(&ron_string).unwrap();
+        assert_eq!(deserialized.name(), None);
+        assert!(matches!(deserialized.get("q"), Some(Action::Quit)));
+
+        // Test RON text with empty name
+        let ron_text = r#"(
+            name: "",
+            keys: {
+                "a": Shell("echo anonymous"),
+                "m": Mode((
+                    name: "",
+                    keys: {
+                        "x": Pop,
+                    }
+                )),
+            }
+        )"#;
+
+        let mode: Mode = ron::from_str(ron_text).unwrap();
+        assert_eq!(mode.name(), None);
+        assert!(matches!(mode.get("a"), Some(Action::Shell(cmd)) if cmd == "echo anonymous"));
+
+        if let Some(Action::Mode(nested)) = mode.get("m") {
+            assert_eq!(nested.name(), None);
+            assert!(matches!(nested.get("x"), Some(Action::Pop)));
+        } else {
+            panic!("Expected nested mode");
         }
     }
 }
