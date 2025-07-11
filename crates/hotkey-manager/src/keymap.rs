@@ -1,4 +1,6 @@
+use global_hotkey::hotkey::HotKey;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 /// Actions that can be triggered by hotkeys
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -55,6 +57,22 @@ impl Mode {
             .iter()
             .find(|(k, _, _)| k == key)
             .map(|(_, name, action)| (name.as_str(), action))
+    }
+
+    /// Validate all key bindings in this mode and nested modes
+    pub fn validate(&self) -> Result<(), String> {
+        for (key, name, action) in &self.keys {
+            // Try to parse the key with global_hotkey
+            if let Err(e) = HotKey::from_str(key) {
+                return Err(format!("Invalid key '{key}' ({name}): {e}"));
+            }
+
+            // Recursively validate nested modes
+            if let Action::Mode(nested_mode) = action {
+                nested_mode.validate()?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -290,5 +308,69 @@ mod tests {
         } else {
             panic!("Expected nested mode");
         }
+    }
+
+    #[test]
+    fn test_validate_valid_keys() {
+        // Simple valid keys
+        let mode = Mode::from_bindings([
+            ("ctrl+a", "Select All", Action::shell("select all")),
+            ("cmd+c", "Copy", Action::shell("copy")),
+            ("shift+f1", "Help", Action::shell("help")),
+        ]);
+        assert!(mode.validate().is_ok());
+
+        // Nested modes with valid keys
+        let nested = Mode::from_bindings([
+            ("ctrl+s", "Save", Action::shell("save")),
+            ("ctrl+shift+s", "Save As", Action::shell("save as")),
+        ]);
+
+        let main_mode = Mode::from_bindings([
+            ("cmd+f", "File", Action::Mode(nested)),
+            ("escape", "Exit", Action::Exit),
+        ]);
+        assert!(main_mode.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_invalid_keys() {
+        // Invalid key at root level
+        let mode = Mode::from_bindings([
+            ("ctrl+a", "Valid", Action::shell("valid")),
+            ("invalid key", "Invalid", Action::shell("invalid")),
+        ]);
+        let err = mode.validate().unwrap_err();
+        assert!(err.contains("Invalid key 'invalid key' (Invalid)"));
+        assert!(err.contains("Couldn't recognize"));
+
+        // Invalid key in nested mode
+        let nested = Mode::from_bindings([
+            ("ctrl+s", "Save", Action::shell("save")),
+            ("bad+key", "Bad", Action::shell("bad")),
+        ]);
+
+        let main_mode = Mode::from_bindings([
+            ("cmd+f", "File", Action::Mode(nested)),
+            ("escape", "Exit", Action::Exit),
+        ]);
+        let err = main_mode.validate().unwrap_err();
+        assert!(err.contains("Invalid key 'bad+key' (Bad)"));
+    }
+
+    #[test]
+    fn test_validate_deeply_nested() {
+        // Create a deeply nested mode structure
+        let level3 = Mode::from_bindings([
+            ("ctrl+3", "Level 3", Action::shell("level3")),
+            ("invalid", "Invalid", Action::shell("invalid")),
+        ]);
+
+        let level2 = Mode::from_bindings([("ctrl+2", "Level 2", Action::Mode(level3))]);
+
+        let level1 = Mode::from_bindings([("ctrl+1", "Level 1", Action::Mode(level2))]);
+
+        let err = level1.validate().unwrap_err();
+        assert!(err.contains("Invalid key 'invalid' (Invalid)"));
     }
 }
