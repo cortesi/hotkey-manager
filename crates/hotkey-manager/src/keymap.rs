@@ -76,46 +76,6 @@ impl Mode {
     }
 }
 
-/// Manages a stack of modes for hierarchical key binding navigation
-#[derive(Debug)]
-pub struct KeyMapState {
-    mode_stack: Vec<Mode>,
-}
-
-impl Default for KeyMapState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl KeyMapState {
-    /// Create a new empty keymap state
-    pub fn new() -> Self {
-        Self {
-            mode_stack: Vec::new(),
-        }
-    }
-
-    /// Push a new mode onto the stack
-    pub fn push_mode(&mut self, mode: Mode) {
-        self.mode_stack.push(mode);
-    }
-
-    /// Pop the current mode from the stack
-    pub fn pop_mode(&mut self) -> Option<Mode> {
-        self.mode_stack.pop()
-    }
-
-    /// Get a reference to the current mode
-    pub fn current_mode(&self) -> Option<&Mode> {
-        self.mode_stack.last()
-    }
-
-    /// Handle a key press in the current mode
-    pub fn handle_key(&self, key: &str) -> Option<&Action> {
-        self.current_mode().and_then(|mode| mode.get(key))
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -152,34 +112,6 @@ mod tests {
         } else {
             panic!("Expected nested mode");
         }
-    }
-
-    #[test]
-    fn test_keymap_manager() {
-        let mut manager = KeyMapState::new();
-
-        let mode2 = Mode::from_bindings([
-            ("p", "Back", Action::Pop),
-            ("s", "Shell", Action::shell("ls")),
-        ]);
-
-        let mode1 = Mode::from_bindings([
-            ("q", "Exit", Action::Exit),
-            ("2", "Mode 2", Action::Mode(mode2.clone())),
-        ]);
-
-        manager.push_mode(mode1);
-        assert!(matches!(manager.handle_key("q"), Some(Action::Exit)));
-
-        if let Some(Action::Mode(next_mode)) = manager.handle_key("2") {
-            manager.push_mode(next_mode.clone());
-        }
-
-        assert!(matches!(manager.handle_key("p"), Some(Action::Pop)));
-        assert!(matches!(manager.handle_key("s"), Some(Action::Shell(cmd)) if cmd == "ls"));
-
-        manager.pop_mode();
-        assert!(matches!(manager.handle_key("q"), Some(Action::Exit)));
     }
 
     #[test]

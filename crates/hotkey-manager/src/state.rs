@@ -1,0 +1,139 @@
+use crate::keymap::{Action, Mode};
+
+/// Manages a stack of modes for hierarchical key binding navigation
+#[derive(Debug)]
+pub struct State {
+    root: Mode,
+    mode_stack: Vec<Mode>,
+}
+
+impl State {
+    /// Create a new state with the given root mode
+    pub fn new(root: Mode) -> Self {
+        Self {
+            root,
+            mode_stack: Vec::new(),
+        }
+    }
+
+    /// Process a key press and return the resulting action if any
+    pub fn key(&mut self, key: &str) -> Option<Action> {
+        // Get the current mode (from stack or root)
+        let current_mode = if let Some(mode) = self.mode_stack.last() {
+            mode
+        } else {
+            &self.root
+        };
+
+        // Look up the action for this key
+        if let Some(action) = current_mode.get(key) {
+            match action {
+                Action::Mode(new_mode) => {
+                    // Push the new mode onto the stack
+                    self.mode_stack.push(new_mode.clone());
+                    None
+                }
+                Action::Pop => {
+                    if self.mode_stack.is_empty() {
+                        // Popping from root - return Exit
+                        Some(Action::Exit)
+                    } else {
+                        // Pop the current mode
+                        self.mode_stack.pop();
+                        None
+                    }
+                }
+                // All other actions are returned as-is
+                _ => Some(action.clone()),
+            }
+        } else {
+            // Key not found
+            None
+        }
+    }
+
+    /// Reset to the root mode
+    pub fn reset(&mut self) {
+        self.mode_stack.clear();
+    }
+
+    /// Get the current mode depth (0 = root)
+    pub fn depth(&self) -> usize {
+        self.mode_stack.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keymap::Action;
+
+    #[test]
+    fn test_state_navigation() {
+        let mode2 = Mode::from_bindings([
+            ("p", "Back", Action::Pop),
+            ("s", "Shell", Action::shell("ls")),
+            ("e", "Exit", Action::Exit),
+        ]);
+
+        let root = Mode::from_bindings([
+            ("q", "Exit", Action::Exit),
+            ("2", "Mode 2", Action::Mode(mode2)),
+            ("h", "Hello", Action::shell("echo hello")),
+            ("p", "Pop", Action::Pop), // Add pop to root to test Exit behavior
+        ]);
+
+        let mut state = State::new(root);
+
+        // Test root mode
+        assert_eq!(state.depth(), 0);
+        assert!(matches!(state.key("q"), Some(Action::Exit)));
+        assert!(matches!(state.key("h"), Some(Action::Shell(cmd)) if cmd == "echo hello"));
+
+        // Enter mode2
+        assert!(state.key("2").is_none());
+        assert_eq!(state.depth(), 1);
+
+        // Test mode2
+        assert!(matches!(state.key("s"), Some(Action::Shell(cmd)) if cmd == "ls"));
+        assert!(matches!(state.key("e"), Some(Action::Exit)));
+
+        // Pop back to root
+        assert!(state.key("p").is_none());
+        assert_eq!(state.depth(), 0);
+
+        // Test we're back in root
+        assert!(matches!(state.key("q"), Some(Action::Exit)));
+
+        // Test pop from root returns Exit
+        assert!(matches!(state.key("p"), Some(Action::Exit)));
+    }
+
+    #[test]
+    fn test_state_reset() {
+        let nested = Mode::from_bindings([("x", "Exit", Action::Exit)]);
+
+        let root = Mode::from_bindings([("n", "Nested", Action::Mode(nested))]);
+
+        let mut state = State::new(root);
+
+        // Go into nested mode
+        state.key("n");
+        assert_eq!(state.depth(), 1);
+
+        // Reset
+        state.reset();
+        assert_eq!(state.depth(), 0);
+    }
+
+    #[test]
+    fn test_unknown_keys() {
+        let root = Mode::from_bindings([("a", "Action", Action::shell("test"))]);
+
+        let mut state = State::new(root);
+
+        // Unknown key returns None
+        assert!(state.key("z").is_none());
+        assert!(state.key("unknown").is_none());
+    }
+}

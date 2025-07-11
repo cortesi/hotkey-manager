@@ -15,6 +15,7 @@ pub use global_hotkey::hotkey::{Code, Modifiers};
 
 pub mod ipc;
 pub mod keymap;
+pub mod state;
 
 /// Type alias for hotkey callbacks that receive the identifier
 pub type HotkeyCallback = Arc<dyn Fn(&str) + Send + Sync>;
