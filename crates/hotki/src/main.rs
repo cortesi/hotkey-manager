@@ -1,12 +1,12 @@
 use hotkey_manager::{
     HotkeyManager,
-    ipc::{IPCClient, IPCServer, IPCConnection},
+    ipc::{IPCClient, IPCConnection, IPCServer},
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tokio::time::sleep;
 use tokio::signal;
+use tokio::time::sleep;
 
 /// Default socket path for IPC communication
 const DEFAULT_SOCKET_PATH: &str = "/tmp/hotkey-manager.sock";
@@ -30,11 +30,11 @@ impl ServerGuard {
             shutdown_sent,
         }
     }
-    
+
     async fn connection(&mut self) -> &mut IPCConnection {
         self.connection.as_mut().unwrap()
     }
-    
+
     async fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(mut conn) = self.connection.take() {
             if !self.shutdown_sent.load(Ordering::SeqCst) {
@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the IPC server with the manager
     let server = IPCServer::new(socket_path, manager);
-    
+
     // Create a channel to signal server shutdown
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -91,11 +91,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = IPCClient::new(socket_path);
     let connection = client.connect().await?;
     let mut guard = ServerGuard::new(connection, shutdown_sent.clone());
-    
+
     // Set up Ctrl+C handler
     let shutdown_sent_ctrlc = shutdown_sent.clone();
     tokio::spawn(async move {
-        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
         println!("\nReceived Ctrl+C, shutting down...");
         shutdown_sent_ctrlc.store(true, Ordering::SeqCst);
     });
@@ -118,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Err(e) => eprintln!("Failed to list hotkeys: {e}"),
             }
-            
+
             // Add a small delay to allow testing Ctrl+C
             println!("\nPress Ctrl+C to test graceful shutdown, or wait 2 seconds...");
             tokio::select! {
@@ -133,12 +135,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Shutdown requested via Ctrl+C");
                 }
             }
-            
+
             // Normal shutdown
             guard.shutdown().await?;
             Ok::<(), Box<dyn std::error::Error>>(())
         } => result,
-        
+
         _ = tokio::time::sleep(Duration::from_secs(1)) => {
             if shutdown_sent.load(Ordering::SeqCst) {
                 guard.shutdown().await?;
@@ -148,20 +150,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
-    
+
     // Ensure shutdown is sent
     if !shutdown_sent.load(Ordering::SeqCst) {
         guard.shutdown().await?;
     }
-    
+
     // Signal server to stop
     let _ = shutdown_tx.send(());
-    
+
     // Wait for server to shut down
     tokio::time::timeout(
         Duration::from_millis(SERVER_SHUTDOWN_DELAY_MS * 2),
-        server_handle
-    ).await
+        server_handle,
+    )
+    .await
     .map_err(|_| "Server shutdown timeout")??;
 
     println!("Done!");

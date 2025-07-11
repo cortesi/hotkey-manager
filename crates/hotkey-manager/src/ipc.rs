@@ -2,7 +2,7 @@
 //!
 //! This module provides a client-server architecture for managing hotkeys
 //! across process boundaries. The server runs in a separate process with
-//! the actual HotkeyManager, while a single client can connect to query 
+//! the actual HotkeyManager, while a single client can connect to query
 //! state and receive hotkey events.
 //!
 //! Key design decisions:
@@ -15,14 +15,21 @@
 //! in separate processes, particularly useful for macOS applications where
 //! hotkey handling in the main thread can cause issues.
 
-use crate::error::{Error, Result};
-use crate::HotkeyManager;
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{UnixListener, UnixStream},
+};
+
+use crate::{
+    error::{Error, Result},
+    HotkeyManager, Key,
+};
 
 /// Represents requests that can be sent from IPC clients to the server.
 ///
@@ -38,6 +45,13 @@ pub enum IPCRequest {
     /// In single-client mode, the server will also shut down when
     /// the client disconnects without sending this command.
     Shutdown,
+    /// Rebind all hotkeys, replacing the current configuration.
+    /// This will first unbind all existing hotkeys, then bind the new ones.
+    /// The operation is atomic - if any binding fails, all are rolled back.
+    Rebind {
+        /// Vector of (identifier, key) pairs to bind
+        keys: Vec<(String, Key)>,
+    },
 }
 
 /// Represents responses sent from the IPC server to clients.
@@ -214,7 +228,7 @@ async fn handle_client(
 async fn handle_request(
     manager: &Arc<HotkeyManager>,
     request: IPCRequest,
-    _event_tx: &tokio::sync::mpsc::UnboundedSender<IPCResponse>,
+    event_tx: &tokio::sync::mpsc::UnboundedSender<IPCResponse>,
 ) -> IPCResponse {
     match request {
         IPCRequest::ListHotkeys => {
@@ -229,6 +243,50 @@ async fn handle_request(
             message: "Shutting down".to_string(),
             data: None,
         },
+
+        IPCRequest::Rebind { keys } => {
+            // First unbind all existing hotkeys
+            if let Err(e) = manager.unbind_all() {
+                return IPCResponse::Error {
+                    message: format!("Failed to unbind existing hotkeys: {}", e),
+                };
+            }
+
+            // Get the event sender for creating callbacks
+            let event_sender = Arc::new(Mutex::new(Some(event_tx.clone())));
+            let callback = create_event_forwarder(event_sender);
+
+            // Bind all the new hotkeys
+            let results = manager.bind_multiple(&keys, callback);
+
+            // Check if any bindings failed
+            let mut failed_bindings = Vec::new();
+            let mut successful_count = 0;
+
+            for (idx, result) in results.iter().enumerate() {
+                match result {
+                    Ok(_) => successful_count += 1,
+                    Err(e) => failed_bindings.push((keys[idx].0.clone(), e.to_string())),
+                }
+            }
+
+            if failed_bindings.is_empty() {
+                IPCResponse::Success {
+                    message: format!("Successfully bound {} hotkeys", successful_count),
+                    data: None,
+                }
+            } else {
+                // If any failed, unbind all to maintain atomicity
+                let _ = manager.unbind_all();
+                IPCResponse::Error {
+                    message: format!(
+                        "Failed to bind {} hotkeys: {:?}",
+                        failed_bindings.len(),
+                        failed_bindings
+                    ),
+                }
+            }
+        }
     }
 }
 
@@ -275,10 +333,7 @@ impl IPCConnection {
     ///
     /// Messages are encoded as JSON and prefixed with a 4-byte big-endian
     /// length header for proper framing over the stream connection.
-    async fn send_request(
-        &mut self,
-        request: &IPCRequest,
-    ) -> Result<()> {
+    async fn send_request(&mut self, request: &IPCRequest) -> Result<()> {
         let data = serde_json::to_vec(request)?;
         let len_bytes = (data.len() as u32).to_be_bytes();
         self.stream.write_all(&len_bytes).await?;
@@ -309,9 +364,7 @@ impl IPCConnection {
     /// - Hotkey ID (unique identifier)
     /// - Identifier (user-provided string identifier)
     /// - Description (string representation of the hotkey combination)
-    pub async fn list_hotkeys(
-        &mut self,
-    ) -> Result<Vec<(u32, String, String)>> {
+    pub async fn list_hotkeys(&mut self) -> Result<Vec<(u32, String, String)>> {
         self.send_request(&IPCRequest::ListHotkeys).await?;
 
         match self.recv_response().await? {
@@ -335,6 +388,40 @@ impl IPCConnection {
     pub async fn shutdown(&mut self) -> Result<()> {
         self.send_request(&IPCRequest::Shutdown).await?;
         Ok(())
+    }
+
+    /// Rebind all hotkeys, replacing the current configuration.
+    ///
+    /// This operation is atomic - if any binding fails, all existing hotkeys
+    /// are restored. The keys parameter should contain (identifier, key) pairs.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use hotkey_manager::ipc::IPCClient;
+    /// use hotkey_manager::Key;
+    ///
+    /// let client = IPCClient::new("/tmp/hotkeys.sock");
+    /// let mut conn = client.connect().await?;
+    ///
+    /// conn.rebind(&[
+    ///     ("copy".to_string(), Key::parse("ctrl+c")?),
+    ///     ("paste".to_string(), Key::parse("ctrl+v")?),
+    /// ]).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn rebind(&mut self, keys: &[(String, Key)]) -> Result<()> {
+        self.send_request(&IPCRequest::Rebind {
+            keys: keys.to_vec(),
+        })
+        .await?;
+
+        match self.recv_response().await? {
+            IPCResponse::Success { .. } => Ok(()),
+            IPCResponse::Error { message } => Err(Error::Ipc(message)),
+            _ => Err(Error::Ipc("Unexpected response".to_string())),
+        }
     }
 
     /// Receive the next event or response from the server.
@@ -362,7 +449,7 @@ impl IPCConnection {
 /// for multiple hotkeys.
 pub fn create_event_forwarder(
     event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
-) -> impl Fn(&str) + Send + Sync + 'static {
+) -> impl Fn(&str) + Send + Sync + Clone + 'static {
     move |identifier| {
         if let Some(sender) = event_sender.lock().unwrap().as_ref() {
             let _ = sender.send(IPCResponse::HotkeyTriggered {
