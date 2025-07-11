@@ -132,7 +132,6 @@ name = "hotkey-manager"
 version = "0.1.0"
 dependencies = [
  "global-hotkey",
- "keymode",
  "serde",
  "serde_json",
  "tokio",

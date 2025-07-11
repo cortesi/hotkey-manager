@@ -7,7 +7,6 @@ description = "A general-purpose global hotkey manager"
 license = "MIT"
 
 [dependencies]
-keymode = { path = "../keymode" }
 global-hotkey = "0.7"
 tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "sync"] }
 serde = { version = "1.0", features = ["derive"] }
