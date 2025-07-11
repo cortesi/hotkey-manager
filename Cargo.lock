@@ -132,7 +132,7 @@ name = "hotkey-manager"
 version = "0.1.0"
 dependencies = [
  "global-hotkey",
- "ron",
+ "keymode",
  "serde",
  "serde_json",
  "tokio",
@@ -172,6 +172,15 @@ dependencies = [
  "bitflags",
  "serde",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "keymode"
+version = "0.0.1"
+dependencies = [
+ "global-hotkey",
+ "ron",
+ "serde",
 ]
 
 [[package]]
