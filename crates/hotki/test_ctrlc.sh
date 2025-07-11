@@ -1,3 +1,10 @@
+#!/bin/bash
+echo "Starting hotki - press Ctrl+C to test shutdown..."
+echo "The program will wait for 5 seconds after listing hotkeys"
+echo ""
+
+# Create a simple test program that waits
+cat > /tmp/test_hotki.rs << 'EOF'
 use hotkey_manager::{
     HotkeyManager,
     ipc::{IPCClient, IPCServer, IPCConnection},
@@ -8,16 +15,10 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tokio::signal;
 
-/// Default socket path for IPC communication
-const DEFAULT_SOCKET_PATH: &str = "/tmp/hotkey-manager.sock";
-
-/// Delay to wait for server startup
+const DEFAULT_SOCKET_PATH: &str = "/tmp/hotkey-manager-test.sock";
 const SERVER_STARTUP_DELAY_MS: u64 = 100;
-
-/// Delay to wait for server shutdown
 const SERVER_SHUTDOWN_DELAY_MS: u64 = 100;
 
-/// Wrapper to ensure server shutdown on drop
 struct ServerGuard {
     connection: Option<IPCConnection>,
     shutdown_sent: Arc<AtomicBool>,
@@ -50,7 +51,7 @@ impl ServerGuard {
 impl Drop for ServerGuard {
     fn drop(&mut self) {
         if self.connection.is_some() && !self.shutdown_sent.load(Ordering::SeqCst) {
-            eprintln!("\nWarning: ServerGuard dropped without sending shutdown command");
+            eprintln!("\nServerGuard cleanup: Ensuring shutdown on drop");
         }
     }
 }
@@ -60,17 +61,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket_path = DEFAULT_SOCKET_PATH;
     let shutdown_sent = Arc::new(AtomicBool::new(false));
 
-    // Create a hotkey manager and configure some example hotkeys
     let manager =
         HotkeyManager::new().map_err(|e| format!("Failed to create hotkey manager: {e}"))?;
 
-    // Create the IPC server with the manager
     let server = IPCServer::new(socket_path, manager);
     
-    // Create a channel to signal server shutdown
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
-    // Spawn the server in a background task
     let server_handle = tokio::spawn(async move {
         tokio::select! {
             result = server.run() => {
@@ -84,86 +81,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Give the server a moment to start
     sleep(Duration::from_millis(SERVER_STARTUP_DELAY_MS)).await;
 
-    // Create a client and connect
     let client = IPCClient::new(socket_path);
     let connection = client.connect().await?;
     let mut guard = ServerGuard::new(connection, shutdown_sent.clone());
     
-    // Set up Ctrl+C handler
     let shutdown_sent_ctrlc = shutdown_sent.clone();
     tokio::spawn(async move {
         signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
-        println!("\nReceived Ctrl+C, shutting down...");
+        println!("\n*** Received Ctrl+C, shutting down gracefully...");
         shutdown_sent_ctrlc.store(true, Ordering::SeqCst);
     });
 
-    // Run main logic in a select! to handle Ctrl+C
-    let result = tokio::select! {
-        result = async {
-            // List hotkeys
-            println!("Listing hotkeys...");
-            match guard.connection().await.list_hotkeys().await {
-                Ok(hotkeys) => {
-                    if hotkeys.is_empty() {
-                        println!("No hotkeys registered.");
-                    } else {
-                        println!("Registered hotkeys:");
-                        for (id, identifier, description) in hotkeys {
-                            println!("  ID: {id}, Identifier: {identifier}, Description: {description}");
-                        }
-                    }
-                }
-                Err(e) => eprintln!("Failed to list hotkeys: {e}"),
-            }
-            
-            // Add a small delay to allow testing Ctrl+C
-            println!("\nPress Ctrl+C to test graceful shutdown, or wait 2 seconds...");
-            tokio::select! {
-                _ = sleep(Duration::from_secs(2)) => {
-                    println!("Proceeding with normal shutdown");
-                }
-                _ = async {
-                    while !shutdown_sent.load(Ordering::SeqCst) {
-                        sleep(Duration::from_millis(100)).await;
-                    }
-                } => {
-                    println!("Shutdown requested via Ctrl+C");
-                }
-            }
-            
-            // Normal shutdown
-            guard.shutdown().await?;
-            Ok::<(), Box<dyn std::error::Error>>(())
-        } => result,
-        
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {
-            if shutdown_sent.load(Ordering::SeqCst) {
-                guard.shutdown().await?;
-                Ok(())
+    println!("Listing hotkeys...");
+    match guard.connection().await.list_hotkeys().await {
+        Ok(hotkeys) => {
+            if hotkeys.is_empty() {
+                println!("No hotkeys registered.");
             } else {
-                Ok(())
+                println!("Registered hotkeys:");
+                for (id, identifier, description) in hotkeys {
+                    println!("  ID: {id}, Identifier: {identifier}, Description: {description}");
+                }
             }
         }
-    };
+        Err(e) => eprintln!("Failed to list hotkeys: {e}"),
+    }
     
-    // Ensure shutdown is sent
+    println!("\n>>> Waiting 5 seconds - press Ctrl+C to test graceful shutdown...");
+    
+    for i in 1..=5 {
+        if shutdown_sent.load(Ordering::SeqCst) {
+            println!(">>> Shutdown requested!");
+            break;
+        }
+        println!(">>> {}...", i);
+        sleep(Duration::from_secs(1)).await;
+    }
+    
     if !shutdown_sent.load(Ordering::SeqCst) {
+        println!("\n>>> Normal shutdown");
+        guard.shutdown().await?;
+    } else {
         guard.shutdown().await?;
     }
     
-    // Signal server to stop
     let _ = shutdown_tx.send(());
     
-    // Wait for server to shut down
     tokio::time::timeout(
         Duration::from_millis(SERVER_SHUTDOWN_DELAY_MS * 2),
         server_handle
     ).await
     .map_err(|_| "Server shutdown timeout")??;
 
-    println!("Done!");
-    result
+    println!(">>> Clean shutdown complete!");
+    Ok(())
 }
+EOF
+
+cd /Users/cortesi/git/public/hotkey-manager
+rustc --edition 2021 -L target/debug/deps /tmp/test_hotki.rs -o /tmp/test_hotki \
+    --extern hotkey_manager=target/debug/libhotkey_manager.rlib \
+    --extern tokio=target/debug/deps/libtokio-*.rlib \
+    -L target/debug \
+    $(find target/debug/deps -name "*.rlib" | sed 's/^/--extern /' | tr '\n' ' ')
+
+if [ $? -eq 0 ]; then
+    /tmp/test_hotki
+else
+    echo "Compilation failed, running cargo build first..."
+    cargo build --bin hotki
+    cargo run --bin hotki
+fi
