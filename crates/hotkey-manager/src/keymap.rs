@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Actions that can be triggered by hotkeys
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Action {
     /// Execute a shell command
     Shell(String),
@@ -14,23 +14,47 @@ pub enum Action {
     Exit,
 }
 
+impl Action {
+    /// Create a Shell action
+    pub fn shell(cmd: impl Into<String>) -> Self {
+        Action::Shell(cmd.into())
+    }
+}
+
 /// A collection of key bindings with their associated actions and descriptions
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(transparent)]
 pub struct Mode {
-    keys: HashMap<String, (String, Action)>,
+    keys: Vec<(String, String, Action)>,
 }
 
 impl Mode {
+    /// Create a new Mode from an array of (key, name, action) tuples
+    pub fn from_bindings<'a>(
+        bindings: impl IntoIterator<Item = (&'a str, &'a str, Action)>,
+    ) -> Self {
+        Mode {
+            keys: bindings
+                .into_iter()
+                .map(|(key, name, action)| (key.to_string(), name.to_string(), action))
+                .collect(),
+        }
+    }
+
     /// Get the action associated with a key
     pub fn get(&self, key: &str) -> Option<&Action> {
-        self.keys.get(key).map(|(_, action)| action)
+        self.keys
+            .iter()
+            .find(|(k, _, _)| k == key)
+            .map(|(_, _, action)| action)
     }
 
     /// Get both the name and action associated with a key
     pub fn get_with_name(&self, key: &str) -> Option<(&str, &Action)> {
         self.keys
-            .get(key)
-            .map(|(name, action)| (name.as_str(), action))
+            .iter()
+            .find(|(k, _, _)| k == key)
+            .map(|(_, name, action)| (name.as_str(), action))
     }
 }
 
@@ -81,15 +105,10 @@ mod tests {
 
     #[test]
     fn test_mode() {
-        let mode = Mode {
-            keys: HashMap::from([
-                ("q".to_string(), ("Exit".to_string(), Action::Exit)),
-                (
-                    "s".to_string(),
-                    ("Shell".to_string(), Action::Shell("echo hello".to_string())),
-                ),
-            ]),
-        };
+        let mode = Mode::from_bindings([
+            ("q", "Exit", Action::Exit),
+            ("s", "Shell", Action::shell("echo hello")),
+        ]);
 
         assert!(matches!(mode.get("q"), Some(Action::Exit)));
         assert!(matches!(mode.get("s"), Some(Action::Shell(cmd)) if cmd == "echo hello"));
@@ -98,25 +117,15 @@ mod tests {
 
     #[test]
     fn test_nested_modes() {
-        let submenu = Mode {
-            keys: HashMap::from([
-                (
-                    "x".to_string(),
-                    ("Exit".to_string(), Action::Shell("exit".to_string())),
-                ),
-                ("p".to_string(), ("Back".to_string(), Action::Pop)),
-            ]),
-        };
+        let submenu = Mode::from_bindings([
+            ("x", "Exit", Action::shell("exit")),
+            ("p", "Back", Action::Pop),
+        ]);
 
-        let main_mode = Mode {
-            keys: HashMap::from([
-                ("q".to_string(), ("Exit".to_string(), Action::Exit)),
-                (
-                    "m".to_string(),
-                    ("Submenu".to_string(), Action::Mode(submenu)),
-                ),
-            ]),
-        };
+        let main_mode = Mode::from_bindings([
+            ("q", "Exit", Action::Exit),
+            ("m", "Submenu", Action::Mode(submenu)),
+        ]);
 
         assert!(matches!(main_mode.get("q"), Some(Action::Exit)));
 
@@ -131,25 +140,15 @@ mod tests {
     fn test_keymap_manager() {
         let mut manager = KeyMapState::new();
 
-        let mode2 = Mode {
-            keys: HashMap::from([
-                ("p".to_string(), ("Back".to_string(), Action::Pop)),
-                (
-                    "s".to_string(),
-                    ("Shell".to_string(), Action::Shell("ls".to_string())),
-                ),
-            ]),
-        };
+        let mode2 = Mode::from_bindings([
+            ("p", "Back", Action::Pop),
+            ("s", "Shell", Action::shell("ls")),
+        ]);
 
-        let mode1 = Mode {
-            keys: HashMap::from([
-                ("q".to_string(), ("Exit".to_string(), Action::Exit)),
-                (
-                    "2".to_string(),
-                    ("Mode 2".to_string(), Action::Mode(mode2.clone())),
-                ),
-            ]),
-        };
+        let mode1 = Mode::from_bindings([
+            ("q", "Exit", Action::Exit),
+            ("2", "Mode 2", Action::Mode(mode2.clone())),
+        ]);
 
         manager.push_mode(mode1);
         assert!(matches!(manager.handle_key("q"), Some(Action::Exit)));
@@ -167,27 +166,14 @@ mod tests {
 
     #[test]
     fn test_mode_serialization() {
-        let nested_mode = Mode {
-            keys: HashMap::from([(
-                "x".to_string(),
-                ("Exit".to_string(), Action::Shell("exit".to_string())),
-            )]),
-        };
+        let nested_mode = Mode::from_bindings([("x", "Exit", Action::shell("exit"))]);
 
-        let mode = Mode {
-            keys: HashMap::from([
-                ("q".to_string(), ("Exit".to_string(), Action::Exit)),
-                (
-                    "s".to_string(),
-                    ("Shell".to_string(), Action::Shell("echo hello".to_string())),
-                ),
-                ("p".to_string(), ("Back".to_string(), Action::Pop)),
-                (
-                    "n".to_string(),
-                    ("Nested".to_string(), Action::Mode(nested_mode)),
-                ),
-            ]),
-        };
+        let mode = Mode::from_bindings([
+            ("q", "Exit", Action::Exit),
+            ("s", "Shell", Action::shell("echo hello")),
+            ("p", "Back", Action::Pop),
+            ("n", "Nested", Action::Mode(nested_mode)),
+        ]);
 
         // Serialize to RON
         let ron_string = ron::to_string(&mode).unwrap();
@@ -204,107 +190,56 @@ mod tests {
     #[test]
     fn test_ron_deserialization() {
         // RON text definition of nested modes
-        let ron_text = r#"(
-            keys: {
-                "q": ("Exit", Exit),
-                "h": ("Hello", Shell("echo 'Hello World'")),
-                "g": ("Git", Mode((
-                    keys: {
-                        "s": ("Status", Shell("git status")),
-                        "p": ("Pull", Shell("git pull")),
-                        "c": ("Commit", Mode((
-                            keys: {
-                                "m": ("Message", Shell("git commit -m 'Quick commit'")),
-                                "a": ("Amend", Shell("git commit --amend")),
-                                "p": ("Back", Pop),
-                            }
-                        ))),
-                        "q": ("Back", Pop),
-                    }
-                ))),
-                "f": ("Files", Mode((
-                    keys: {
-                        "l": ("List", Shell("ls -la")),
-                        "t": ("Tree", Shell("tree")),
-                        "q": ("Back", Pop),
-                    }
-                ))),
-            }
-        )"#;
+        let ron_text = r#"[
+            ("q", "Exit", exit),
+            ("h", "Hello", shell("echo 'Hello World'")),
+            ("g", "Git", mode([
+                ("s", "Status", shell("git status")),
+                ("p", "Pull", shell("git pull")),
+                ("c", "Commit", mode([
+                    ("m", "Message", shell("git commit -m 'Quick commit'")),
+                    ("a", "Amend", shell("git commit --amend")),
+                    ("p", "Back", pop),
+                ])),
+                ("q", "Back", pop),
+            ])),
+            ("f", "Files", mode([
+                ("l", "List", shell("ls -la")),
+                ("t", "Tree", shell("tree")),
+                ("q", "Back", pop),
+            ])),
+        ]"#;
 
         // Construct the expected mode structure
-        let commit_mode = Mode {
-            keys: HashMap::from([
-                (
-                    "m".to_string(),
-                    (
-                        "Message".to_string(),
-                        Action::Shell("git commit -m 'Quick commit'".to_string()),
-                    ),
-                ),
-                (
-                    "a".to_string(),
-                    (
-                        "Amend".to_string(),
-                        Action::Shell("git commit --amend".to_string()),
-                    ),
-                ),
-                ("p".to_string(), ("Back".to_string(), Action::Pop)),
-            ]),
-        };
+        let commit_mode = Mode::from_bindings([
+            (
+                "m",
+                "Message",
+                Action::shell("git commit -m 'Quick commit'"),
+            ),
+            ("a", "Amend", Action::shell("git commit --amend")),
+            ("p", "Back", Action::Pop),
+        ]);
 
-        let git_mode = Mode {
-            keys: HashMap::from([
-                (
-                    "s".to_string(),
-                    (
-                        "Status".to_string(),
-                        Action::Shell("git status".to_string()),
-                    ),
-                ),
-                (
-                    "p".to_string(),
-                    ("Pull".to_string(), Action::Shell("git pull".to_string())),
-                ),
-                (
-                    "c".to_string(),
-                    ("Commit".to_string(), Action::Mode(commit_mode)),
-                ),
-                ("q".to_string(), ("Back".to_string(), Action::Pop)),
-            ]),
-        };
+        let git_mode = Mode::from_bindings([
+            ("s", "Status", Action::shell("git status")),
+            ("p", "Pull", Action::shell("git pull")),
+            ("c", "Commit", Action::Mode(commit_mode)),
+            ("q", "Back", Action::Pop),
+        ]);
 
-        let files_mode = Mode {
-            keys: HashMap::from([
-                (
-                    "l".to_string(),
-                    ("List".to_string(), Action::Shell("ls -la".to_string())),
-                ),
-                (
-                    "t".to_string(),
-                    ("Tree".to_string(), Action::Shell("tree".to_string())),
-                ),
-                ("q".to_string(), ("Back".to_string(), Action::Pop)),
-            ]),
-        };
+        let files_mode = Mode::from_bindings([
+            ("l", "List", Action::shell("ls -la")),
+            ("t", "Tree", Action::shell("tree")),
+            ("q", "Back", Action::Pop),
+        ]);
 
-        let expected = Mode {
-            keys: HashMap::from([
-                ("q".to_string(), ("Exit".to_string(), Action::Exit)),
-                (
-                    "h".to_string(),
-                    (
-                        "Hello".to_string(),
-                        Action::Shell("echo 'Hello World'".to_string()),
-                    ),
-                ),
-                ("g".to_string(), ("Git".to_string(), Action::Mode(git_mode))),
-                (
-                    "f".to_string(),
-                    ("Files".to_string(), Action::Mode(files_mode)),
-                ),
-            ]),
-        };
+        let expected = Mode::from_bindings([
+            ("q", "Exit", Action::Exit),
+            ("h", "Hello", Action::shell("echo 'Hello World'")),
+            ("g", "Git", Action::Mode(git_mode)),
+            ("f", "Files", Action::Mode(files_mode)),
+        ]);
 
         // Deserialize from RON text
         let deserialized: Mode = ron::from_str(ron_text).unwrap();
@@ -316,15 +251,10 @@ mod tests {
     #[test]
     fn test_get_with_name() {
         // Test the get_with_name method
-        let mode = Mode {
-            keys: HashMap::from([
-                ("q".to_string(), ("Exit".to_string(), Action::Exit)),
-                (
-                    "s".to_string(),
-                    ("Shell".to_string(), Action::Shell("ls".to_string())),
-                ),
-            ]),
-        };
+        let mode = Mode::from_bindings([
+            ("q", "Exit", Action::Exit),
+            ("s", "Shell", Action::shell("ls")),
+        ]);
 
         // Test get_with_name
         if let Some((name, action)) = mode.get_with_name("q") {
@@ -345,16 +275,12 @@ mod tests {
         assert!(mode.get_with_name("x").is_none());
 
         // Test RON text with tuples
-        let ron_text = r#"(
-            keys: {
-                "a": ("Anonymous", Shell("echo anonymous")),
-                "m": ("Mode", Mode((
-                    keys: {
-                        "x": ("Exit", Pop),
-                    }
-                ))),
-            }
-        )"#;
+        let ron_text = r#"[
+            ("a", "Anonymous", shell("echo anonymous")),
+            ("m", "Mode", mode([
+                ("x", "Exit", pop),
+            ])),
+        ]"#;
 
         let mode: Mode = ron::from_str(ron_text).unwrap();
         assert!(matches!(mode.get("a"), Some(Action::Shell(cmd)) if cmd == "echo anonymous"));
