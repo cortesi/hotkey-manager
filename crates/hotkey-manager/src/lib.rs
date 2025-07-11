@@ -7,7 +7,9 @@
 pub use global_hotkey::hotkey::{Code, Modifiers};
 
 pub mod ipc;
+pub mod key;
 pub mod manager;
 
-// Re-export the main types from manager module
+// Re-export the main types from modules
+pub use key::Key;
 pub use manager::{HotkeyCallback, HotkeyManager};

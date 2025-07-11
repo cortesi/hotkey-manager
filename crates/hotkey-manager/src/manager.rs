@@ -1,5 +1,6 @@
+use crate::Key;
 use global_hotkey::{
-    hotkey::{Code as HotKeyCode, HotKey, Modifiers as HotKeyModifiers},
+    hotkey::HotKey,
     GlobalHotKeyEvent, GlobalHotKeyManager,
 };
 use std::collections::HashMap;
@@ -63,8 +64,7 @@ impl HotkeyManager {
     /// # Arguments
     ///
     /// * `identifier` - A string identifier for this hotkey
-    /// * `modifiers` - Optional modifier keys (Ctrl, Alt, Shift, Super/Cmd)
-    /// * `code` - The key code to bind
+    /// * `key` - The key combination to bind
     /// * `callback` - The function to call when the hotkey is pressed (receives the identifier)
     ///
     /// # Returns
@@ -77,14 +77,14 @@ impl HotkeyManager {
     pub fn bind<F>(
         &self,
         identifier: impl Into<String>,
-        modifiers: Option<HotKeyModifiers>,
-        code: HotKeyCode,
+        key: impl Into<Key>,
         callback: F,
     ) -> Result<u32, String>
     where
         F: Fn(&str) + Send + Sync + 'static,
     {
-        let hotkey = HotKey::new(modifiers, code);
+        let key = key.into();
+        let hotkey = key.to_hotkey();
 
         // Register with the system
         self.manager
@@ -102,6 +102,31 @@ impl HotkeyManager {
         hotkeys.insert(id, entry);
 
         Ok(id)
+    }
+
+    /// Binds a new hotkey from a string representation.
+    ///
+    /// This is a convenience method that parses the key string before binding.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use hotkey_manager::HotkeyManager;
+    ///
+    /// let manager = HotkeyManager::new().unwrap();
+    /// manager.bind_from_str("copy", "ctrl+c", |_| println!("Copy!")).unwrap();
+    /// ```
+    pub fn bind_from_str<F>(
+        &self,
+        identifier: impl Into<String>,
+        key_str: &str,
+        callback: F,
+    ) -> Result<u32, String>
+    where
+        F: Fn(&str) + Send + Sync + 'static,
+    {
+        let key = Key::parse(key_str)?;
+        self.bind(identifier, key, callback)
     }
 
     /// Unbinds a previously registered hotkey.
@@ -159,7 +184,7 @@ impl HotkeyManager {
     ///
     /// # Arguments
     ///
-    /// * `hotkeys` - A slice of tuples containing (identifier, modifiers, code)
+    /// * `hotkeys` - A slice of tuples containing (identifier, key)
     /// * `callback` - The function to call when any hotkey is pressed (receives the identifier)
     ///
     /// # Returns
@@ -169,32 +194,29 @@ impl HotkeyManager {
     /// # Example
     ///
     /// ```no_run
-    /// use hotkey_manager::{HotkeyManager, Modifiers, Code};
+    /// use hotkey_manager::{HotkeyManager, Key};
     ///
     /// let manager = HotkeyManager::new().unwrap();
     /// let results = manager.bind_multiple(
     ///     &[
-    ///         ("copy", Some(Modifiers::CONTROL), Code::KeyC),
-    ///         ("paste", Some(Modifiers::CONTROL), Code::KeyV),
+    ///         ("copy", Key::parse("ctrl+c").unwrap()),
+    ///         ("paste", Key::parse("ctrl+v").unwrap()),
     ///     ],
     ///     |id| println!("Hotkey pressed: {}", id)
     /// );
     /// ```
-    pub fn bind_multiple<F>(
+    pub fn bind_multiple<F, K>(
         &self,
-        hotkeys: &[(
-            impl Into<String> + Clone,
-            Option<HotKeyModifiers>,
-            HotKeyCode,
-        )],
+        hotkeys: &[(impl Into<String> + Clone, K)],
         callback: F,
     ) -> Vec<Result<u32, String>>
     where
         F: Fn(&str) + Send + Sync + 'static + Clone,
+        K: Into<Key> + Clone,
     {
         hotkeys
             .iter()
-            .map(|(id, mods, code)| self.bind(id.clone(), *mods, *code, callback.clone()))
+            .map(|(id, key)| self.bind(id.clone(), key.clone(), callback.clone()))
             .collect()
     }
 }
