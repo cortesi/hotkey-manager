@@ -1,3 +1,4 @@
+use crate::error::{Error, Result};
 use crate::Key;
 use global_hotkey::{
     hotkey::HotKey,
@@ -33,9 +34,8 @@ impl HotkeyManager {
     /// # Errors
     ///
     /// Returns an error if the underlying global hotkey manager fails to initialize.
-    pub fn new() -> Result<Self, String> {
-        let manager = GlobalHotKeyManager::new()
-            .map_err(|e| format!("Failed to create hotkey manager: {e}"))?;
+    pub fn new() -> Result<Self> {
+        let manager = GlobalHotKeyManager::new()?;
 
         let hotkeys = Arc::new(Mutex::new(HashMap::<u32, HotkeyEntry>::new()));
         let hotkeys_clone = hotkeys.clone();
@@ -79,7 +79,7 @@ impl HotkeyManager {
         identifier: impl Into<String>,
         key: impl Into<Key>,
         callback: F,
-    ) -> Result<u32, String>
+    ) -> Result<u32>
     where
         F: Fn(&str) + Send + Sync + 'static,
     {
@@ -87,9 +87,7 @@ impl HotkeyManager {
         let hotkey = key.to_hotkey();
 
         // Register with the system
-        self.manager
-            .register(hotkey)
-            .map_err(|e| format!("Failed to register hotkey: {e}"))?;
+        self.manager.register(hotkey)?;
 
         // Store the hotkey entry
         let mut hotkeys = self.hotkeys.lock().unwrap();
@@ -121,7 +119,7 @@ impl HotkeyManager {
         identifier: impl Into<String>,
         key_str: &str,
         callback: F,
-    ) -> Result<u32, String>
+    ) -> Result<u32>
     where
         F: Fn(&str) + Send + Sync + 'static,
     {
@@ -138,17 +136,14 @@ impl HotkeyManager {
     /// # Errors
     ///
     /// Returns an error if the hotkey is not found or unregistration fails.
-    pub fn unbind(&self, id: u32) -> Result<(), String> {
+    pub fn unbind(&self, id: u32) -> Result<()> {
         let mut hotkeys = self.hotkeys.lock().unwrap();
 
         if let Some(entry) = hotkeys.remove(&id) {
-            self.manager
-                .unregister(entry.hotkey)
-                .map_err(|e| format!("Failed to unregister hotkey: {e}"))?;
-
+            self.manager.unregister(entry.hotkey)?;
             Ok(())
         } else {
-            Err("Hotkey not found".to_string())
+            Err(Error::HotkeyOperation("Hotkey not found".to_string()))
         }
     }
 
@@ -157,13 +152,11 @@ impl HotkeyManager {
     /// # Errors
     ///
     /// Returns an error if any hotkey fails to unregister.
-    pub fn unbind_all(&self) -> Result<(), String> {
+    pub fn unbind_all(&self) -> Result<()> {
         let mut hotkeys = self.hotkeys.lock().unwrap();
 
         for (_, entry) in hotkeys.drain() {
-            self.manager
-                .unregister(entry.hotkey)
-                .map_err(|e| format!("Failed to unregister hotkey: {e}"))?;
+            self.manager.unregister(entry.hotkey)?;
         }
 
         Ok(())
@@ -209,7 +202,7 @@ impl HotkeyManager {
         &self,
         hotkeys: &[(impl Into<String> + Clone, K)],
         callback: F,
-    ) -> Vec<Result<u32, String>>
+    ) -> Vec<Result<u32>>
     where
         F: Fn(&str) + Send + Sync + 'static + Clone,
         K: Into<Key> + Clone,

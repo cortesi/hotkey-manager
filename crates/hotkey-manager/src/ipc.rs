@@ -15,6 +15,7 @@
 //! in separate processes, particularly useful for macOS applications where
 //! hotkey handling in the main thread can cause issues.
 
+use crate::error::{Error, Result};
 use crate::HotkeyManager;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -106,7 +107,7 @@ impl IPCServer {
     ///
     /// The server automatically removes any existing socket file at the path
     /// before binding to ensure a clean start.
-    pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(self) -> Result<()> {
         // Remove socket file if it exists
         let _ = std::fs::remove_file(&self.socket_path);
 
@@ -137,7 +138,7 @@ async fn handle_client(
     stream: UnixStream,
     manager: Arc<HotkeyManager>,
     event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
     *event_sender.lock().unwrap() = Some(event_tx.clone());
 
@@ -254,7 +255,7 @@ impl IPCClient {
     /// The connection can be used to send requests and receive responses
     /// and events. The server must be running and listening on the socket
     /// path for this to succeed.
-    pub async fn connect(&self) -> Result<IPCConnection, Box<dyn std::error::Error>> {
+    pub async fn connect(&self) -> Result<IPCConnection> {
         let stream = UnixStream::connect(&self.socket_path).await?;
         Ok(IPCConnection { stream })
     }
@@ -277,7 +278,7 @@ impl IPCConnection {
     async fn send_request(
         &mut self,
         request: &IPCRequest,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<()> {
         let data = serde_json::to_vec(request)?;
         let len_bytes = (data.len() as u32).to_be_bytes();
         self.stream.write_all(&len_bytes).await?;
@@ -290,7 +291,7 @@ impl IPCConnection {
     ///
     /// Reads the 4-byte length header first, then reads exactly that many
     /// bytes and decodes the JSON response.
-    async fn recv_response(&mut self) -> Result<IPCResponse, Box<dyn std::error::Error>> {
+    async fn recv_response(&mut self) -> Result<IPCResponse> {
         let mut len_bytes = [0u8; 4];
         self.stream.read_exact(&mut len_bytes).await?;
         let len = u32::from_be_bytes(len_bytes) as usize;
@@ -310,19 +311,19 @@ impl IPCConnection {
     /// - Description (string representation of the hotkey combination)
     pub async fn list_hotkeys(
         &mut self,
-    ) -> Result<Vec<(u32, String, String)>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<(u32, String, String)>> {
         self.send_request(&IPCRequest::ListHotkeys).await?;
 
         match self.recv_response().await? {
             IPCResponse::Success { data, .. } => {
                 if let Some(data) = data {
-                    serde_json::from_value(data).map_err(|e| e.into())
+                    Ok(serde_json::from_value(data)?)
                 } else {
                     Ok(vec![])
                 }
             }
-            IPCResponse::Error { message } => Err(message.into()),
-            _ => Err("Unexpected response".into()),
+            IPCResponse::Error { message } => Err(Error::Ipc(message)),
+            _ => Err(Error::Ipc("Unexpected response".to_string())),
         }
     }
 
@@ -331,7 +332,7 @@ impl IPCConnection {
     /// This requests a graceful shutdown of the server. In single-client mode,
     /// the server will also shut down automatically when the client disconnects,
     /// but sending an explicit shutdown is recommended for clean termination.
-    pub async fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn shutdown(&mut self) -> Result<()> {
         self.send_request(&IPCRequest::Shutdown).await?;
         Ok(())
     }
@@ -345,7 +346,7 @@ impl IPCConnection {
     /// For typical request-response patterns, this is called internally
     /// by the request methods. Call this directly when waiting for
     /// asynchronous hotkey events.
-    pub async fn recv_event(&mut self) -> Result<IPCResponse, Box<dyn std::error::Error>> {
+    pub async fn recv_event(&mut self) -> Result<IPCResponse> {
         self.recv_response().await
     }
 }

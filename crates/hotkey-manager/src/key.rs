@@ -1,3 +1,4 @@
+use crate::error::{Error, Result};
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -32,12 +33,12 @@ impl Key {
     /// let key = Key::parse("ctrl+a").unwrap();
     /// let key2 = Key::parse("cmd+shift+n").unwrap();
     /// ```
-    pub fn parse(s: &str) -> Result<Self, String> {
+    pub fn parse(s: &str) -> Result<Self> {
         // Split by '+' to separate modifiers and key
         let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
 
         if parts.is_empty() {
-            return Err("Empty key string".to_string());
+            return Err(Error::InvalidKey("Empty key string".to_string()));
         }
 
         // The last part should be the key code
@@ -60,7 +61,7 @@ impl Key {
                     "cmd" | "command" | "super" | "win" | "windows" | "meta" => {
                         mods |= Modifiers::SUPER
                     }
-                    _ => return Err(format!("Unknown modifier: {part}")),
+                    _ => return Err(Error::InvalidKey(format!("Unknown modifier: {part}"))),
                 }
             }
             Some(mods)
@@ -88,17 +89,17 @@ impl From<&Key> for HotKey {
 }
 
 impl TryFrom<&str> for Key {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
+    fn try_from(s: &str) -> Result<Self> {
         Key::parse(s)
     }
 }
 
 impl TryFrom<String> for Key {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(s: String) -> Result<Self, Self::Error> {
+    fn try_from(s: String) -> Result<Self> {
         Key::parse(&s)
     }
 }
@@ -129,15 +130,15 @@ impl fmt::Display for Key {
 }
 
 impl FromStr for Key {
-    type Err = String;
+    type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         Key::parse(s)
     }
 }
 
 /// Parse a key code from a string
-fn parse_code(s: &str) -> Result<Code, String> {
+fn parse_code(s: &str) -> Result<Code> {
     match s.to_lowercase().as_str() {
         // Letters
         "a" => Ok(Code::KeyA),
@@ -225,7 +226,7 @@ fn parse_code(s: &str) -> Result<Code, String> {
         "slash" | "/" => Ok(Code::Slash),
         "backquote" | "grave" | "`" => Ok(Code::Backquote),
 
-        _ => Err(format!("Unknown key code: {s}")),
+        _ => Err(Error::InvalidKey(format!("Unknown key code: {s}"))),
     }
 }
 
