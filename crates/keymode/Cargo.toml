@@ -9,6 +9,6 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
+hotkey-manager = { path = "../hotkey-manager" }
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.10.1"
-global-hotkey = "0.7"

@@ -1,6 +1,5 @@
-use global_hotkey::hotkey::HotKey;
+use hotkey_manager::Key;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 /// Attributes for key bindings
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -84,8 +83,8 @@ impl Mode {
     /// Validate all key bindings in this mode and nested modes
     pub fn validate(&self) -> Result<(), String> {
         for (key, name, action, _) in &self.keys {
-            // Try to parse the key with global_hotkey
-            if let Err(e) = HotKey::from_str(key) {
+            // Try to parse the key with hotkey_manager
+            if let Err(e) = Key::parse(key) {
                 return Err(format!("Invalid key '{key}' ({name}): {e}"));
             }
 
@@ -357,7 +356,6 @@ mod tests {
         .unwrap();
         let err = mode.validate().unwrap_err();
         assert!(err.contains("Invalid key 'invalid key' (Invalid)"));
-        assert!(err.contains("Couldn't recognize"));
 
         // Invalid key in nested mode
         let main_mode: Mode = ron::from_str(
@@ -372,6 +370,8 @@ mod tests {
         .unwrap();
         let err = main_mode.validate().unwrap_err();
         assert!(err.contains("Invalid key 'bad+key' (Bad)"));
+        // The error occurs because "key" is not a valid key code
+        assert!(err.contains("Unknown key code: key"));
     }
 
     #[test]

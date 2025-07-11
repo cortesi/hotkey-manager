@@ -177,7 +177,7 @@ dependencies = [
 name = "keymode"
 version = "0.0.1"
 dependencies = [
- "global-hotkey",
+ "hotkey-manager",
  "ron",
  "serde",
 ]
