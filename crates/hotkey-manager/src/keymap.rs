@@ -2,6 +2,13 @@ use global_hotkey::hotkey::HotKey;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
+/// Attributes for key bindings
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Attrs {
+    #[serde(default)]
+    pub nopop: bool,
+}
+
 /// Actions that can be triggered by hotkeys
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -24,10 +31,45 @@ impl Action {
 }
 
 /// A collection of key bindings with their associated actions and descriptions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(transparent)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Mode {
-    keys: Vec<(String, String, Action)>,
+    keys: Vec<(String, String, Action, Attrs)>,
+}
+
+// Manual Serialize implementation that respects transparent
+impl Serialize for Mode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.keys.serialize(serializer)
+    }
+}
+
+// Custom deserializer that accepts both 3-tuples and 4-tuples
+impl<'de> Deserialize<'de> for Mode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Entry {
+            Simple(String, String, Action),
+            WithAttrs(String, String, Action, Attrs),
+        }
+
+        let entries = Vec::<Entry>::deserialize(deserializer)?;
+        let keys = entries
+            .into_iter()
+            .map(|entry| match entry {
+                Entry::Simple(k, n, a) => (k, n, a, Attrs::default()),
+                Entry::WithAttrs(k, n, a, attrs) => (k, n, a, attrs),
+            })
+            .collect();
+
+        Ok(Mode { keys })
+    }
 }
 
 impl Mode {
@@ -38,7 +80,23 @@ impl Mode {
         Mode {
             keys: bindings
                 .into_iter()
-                .map(|(key, name, action)| (key.to_string(), name.to_string(), action))
+                .map(|(key, name, action)| {
+                    (key.to_string(), name.to_string(), action, Attrs::default())
+                })
+                .collect(),
+        }
+    }
+
+    /// Create a new Mode from an array of (key, name, action, attrs) tuples
+    pub fn from_bindings_with_attrs<'a>(
+        bindings: impl IntoIterator<Item = (&'a str, &'a str, Action, Attrs)>,
+    ) -> Self {
+        Mode {
+            keys: bindings
+                .into_iter()
+                .map(|(key, name, action, attrs)| {
+                    (key.to_string(), name.to_string(), action, attrs)
+                })
                 .collect(),
         }
     }
@@ -47,21 +105,29 @@ impl Mode {
     pub fn get(&self, key: &str) -> Option<&Action> {
         self.keys
             .iter()
-            .find(|(k, _, _)| k == key)
-            .map(|(_, _, action)| action)
+            .find(|(k, _, _, _)| k == key)
+            .map(|(_, _, action, _)| action)
     }
 
     /// Get both the name and action associated with a key
     pub fn get_with_name(&self, key: &str) -> Option<(&str, &Action)> {
         self.keys
             .iter()
-            .find(|(k, _, _)| k == key)
-            .map(|(_, name, action)| (name.as_str(), action))
+            .find(|(k, _, _, _)| k == key)
+            .map(|(_, name, action, _)| (name.as_str(), action))
+    }
+
+    /// Get the action and attributes associated with a key
+    pub fn get_with_attrs(&self, key: &str) -> Option<(&Action, &Attrs)> {
+        self.keys
+            .iter()
+            .find(|(k, _, _, _)| k == key)
+            .map(|(_, _, action, attrs)| (action, attrs))
     }
 
     /// Validate all key bindings in this mode and nested modes
     pub fn validate(&self) -> Result<(), String> {
-        for (key, name, action) in &self.keys {
+        for (key, name, action, _) in &self.keys {
             // Try to parse the key with global_hotkey
             if let Err(e) = HotKey::from_str(key) {
                 return Err(format!("Invalid key '{key}' ({name}): {e}"));
@@ -75,7 +141,6 @@ impl Mode {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -139,12 +204,13 @@ mod tests {
 
     #[test]
     fn test_ron_deserialization() {
-        // RON text definition of nested modes
+        // RON text definition of nested modes - testing both with and without attrs
         let ron_text = r#"[
             ("q", "Exit", exit),
             ("h", "Hello", shell("echo 'Hello World'")),
             ("g", "Git", mode([
                 ("s", "Status", shell("git status")),
+                ("l", "Log", shell("git log"), (nopop: true)),
                 ("p", "Pull", shell("git pull")),
                 ("c", "Commit", mode([
                     ("m", "Message", shell("git commit -m 'Quick commit'")),
@@ -155,7 +221,7 @@ mod tests {
             ])),
             ("f", "Files", mode([
                 ("l", "List", shell("ls -la")),
-                ("t", "Tree", shell("tree")),
+                ("t", "Tree", shell("tree"), (nopop: true)),
                 ("q", "Back", pop),
             ])),
         ]"#;
@@ -171,17 +237,33 @@ mod tests {
             ("p", "Back", Action::Pop),
         ]);
 
-        let git_mode = Mode::from_bindings([
-            ("s", "Status", Action::shell("git status")),
-            ("p", "Pull", Action::shell("git pull")),
-            ("c", "Commit", Action::Mode(commit_mode)),
-            ("q", "Back", Action::Pop),
+        let git_mode = Mode::from_bindings_with_attrs([
+            (
+                "s",
+                "Status",
+                Action::shell("git status"),
+                Attrs { nopop: false },
+            ),
+            ("l", "Log", Action::shell("git log"), Attrs { nopop: true }),
+            (
+                "p",
+                "Pull",
+                Action::shell("git pull"),
+                Attrs { nopop: false },
+            ),
+            (
+                "c",
+                "Commit",
+                Action::Mode(commit_mode),
+                Attrs { nopop: false },
+            ),
+            ("q", "Back", Action::Pop, Attrs { nopop: false }),
         ]);
 
-        let files_mode = Mode::from_bindings([
-            ("l", "List", Action::shell("ls -la")),
-            ("t", "Tree", Action::shell("tree")),
-            ("q", "Back", Action::Pop),
+        let files_mode = Mode::from_bindings_with_attrs([
+            ("l", "List", Action::shell("ls -la"), Attrs { nopop: false }),
+            ("t", "Tree", Action::shell("tree"), Attrs { nopop: true }),
+            ("q", "Back", Action::Pop, Attrs { nopop: false }),
         ]);
 
         let expected = Mode::from_bindings([
@@ -304,5 +386,32 @@ mod tests {
 
         let err = level1.validate().unwrap_err();
         assert!(err.contains("Invalid key 'invalid' (Invalid)"));
+    }
+
+    #[test]
+    fn test_attrs_deserialization() {
+        // Test that attrs deserialize correctly
+        let ron_text = r#"[
+            ("a", "Action A", shell("echo a")),
+            ("b", "Action B", shell("echo b"), (nopop: true)),
+            ("c", "Action C", shell("echo c"), (nopop: false)),
+        ]"#;
+
+        let mode: Mode = ron::from_str(ron_text).unwrap();
+
+        // Check action a has default attrs
+        let (action_a, attrs_a) = mode.get_with_attrs("a").unwrap();
+        assert!(matches!(action_a, Action::Shell(cmd) if cmd == "echo a"));
+        assert!(!attrs_a.nopop);
+
+        // Check action b has nopop: true
+        let (action_b, attrs_b) = mode.get_with_attrs("b").unwrap();
+        assert!(matches!(action_b, Action::Shell(cmd) if cmd == "echo b"));
+        assert!(attrs_b.nopop);
+
+        // Check action c has nopop: false
+        let (action_c, attrs_c) = mode.get_with_attrs("c").unwrap();
+        assert!(matches!(action_c, Action::Shell(cmd) if cmd == "echo c"));
+        assert!(!attrs_c.nopop);
     }
 }
