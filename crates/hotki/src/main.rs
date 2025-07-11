@@ -1,6 +1,6 @@
 use hotkey_manager::{
-    HotkeyManager,
-    ipc::{IPCClient, IPCConnection, IPCServer},
+    HotkeyManager, Key,
+    ipc::{IPCClient, IPCConnection, IPCResponse, IPCServer},
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket_path = DEFAULT_SOCKET_PATH;
     let shutdown_sent = Arc::new(AtomicBool::new(false));
 
-    // Create a hotkey manager and configure some example hotkeys
+    // Create a hotkey manager (no hotkeys bound yet)
     let manager =
         HotkeyManager::new().map_err(|e| format!("Failed to create hotkey manager: {e}"))?;
 
@@ -105,8 +105,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run main logic in a select! to handle Ctrl+C
     let result = tokio::select! {
         result = async {
-            // List hotkeys
-            println!("Listing hotkeys...");
+            // List hotkeys before binding
+            println!("Listing hotkeys before rebind...");
             match guard.connection().await.list_hotkeys().await {
                 Ok(hotkeys) => {
                     if hotkeys.is_empty() {
@@ -121,11 +121,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => eprintln!("Failed to list hotkeys: {e}"),
             }
 
-            // Add a small delay to allow testing Ctrl+C
-            println!("\nPress Ctrl+C to test graceful shutdown, or wait 2 seconds...");
+            // Use the Rebind operation to bind the "q" key
+            println!("\nBinding 'q' key using Rebind operation...");
+            let keys = vec![
+                ("quit".to_string(), Key::parse("q").unwrap()),
+            ];
+
+            match guard.connection().await.rebind(&keys).await {
+                Ok(()) => println!("Successfully bound hotkeys"),
+                Err(e) => {
+                    eprintln!("Failed to rebind hotkeys: {e}");
+                    return Err(e.into());
+                }
+            }
+
+            // List hotkeys after binding
+            println!("\nListing hotkeys after rebind...");
+            match guard.connection().await.list_hotkeys().await {
+                Ok(hotkeys) => {
+                    if hotkeys.is_empty() {
+                        println!("No hotkeys registered.");
+                    } else {
+                        println!("Registered hotkeys:");
+                        for (id, identifier, description) in hotkeys {
+                            println!("  ID: {id}, Identifier: {identifier}, Description: {description}");
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Failed to list hotkeys: {e}"),
+            }
+
+            // Wait for quit event
+            println!("\nPress 'q' to quit, or Ctrl+C to test graceful shutdown...");
+            println!("Waiting for events...");
+
+            // Listen for events from the server
             tokio::select! {
-                _ = sleep(Duration::from_secs(2)) => {
-                    println!("Proceeding with normal shutdown");
+                _ = async {
+                    loop {
+                        match guard.connection().await.recv_event().await {
+                            Ok(IPCResponse::HotkeyTriggered { identifier }) => {
+                                println!("Received hotkey event: {identifier}");
+                                if identifier == "quit" {
+                                    println!("Quit hotkey pressed - shutting down...");
+                                    break;
+                                }
+                            }
+                            Ok(response) => {
+                                println!("Received response: {response:?}");
+                            }
+                            Err(e) => {
+                                eprintln!("Error receiving event: {e}");
+                                break;
+                            }
+                        }
+                    }
+                } => {
+                    println!("Event loop ended");
                 }
                 _ = async {
                     while !shutdown_sent.load(Ordering::SeqCst) {

@@ -248,7 +248,7 @@ async fn handle_request(
             // First unbind all existing hotkeys
             if let Err(e) = manager.unbind_all() {
                 return IPCResponse::Error {
-                    message: format!("Failed to unbind existing hotkeys: {}", e),
+                    message: format!("Failed to unbind existing hotkeys: {e}"),
                 };
             }
 
@@ -272,7 +272,7 @@ async fn handle_request(
 
             if failed_bindings.is_empty() {
                 IPCResponse::Success {
-                    message: format!("Successfully bound {} hotkeys", successful_count),
+                    message: format!("Successfully bound {successful_count} hotkeys"),
                     data: None,
                 }
             } else {
