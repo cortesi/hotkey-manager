@@ -2,14 +2,14 @@
 //!
 //! This module provides a client-server architecture for managing hotkeys
 //! across process boundaries. The server runs in a separate process with
-//! the actual HotkeyManager, while clients can connect to query state and
-//! receive hotkey events.
+//! the actual HotkeyManager, while a single client can connect to query 
+//! state and receive hotkey events.
 //!
 //! Key design decisions:
 //! - Hotkeys must be pre-configured before starting the server (no dynamic binding)
 //! - Communication uses Unix domain sockets with a simple length-prefixed protocol
-//! - Single-client mode ensures automatic cleanup for one-to-one relationships
-//! - Events are forwarded asynchronously to all connected clients
+//! - Enforces single client/server relationship for simplicity and automatic cleanup
+//! - Events are forwarded asynchronously to the connected client
 //!
 //! The IPC system is designed to solve the problem of running hotkey managers
 //! in separate processes, particularly useful for macOS applications where
@@ -58,20 +58,18 @@ pub enum IPCResponse {
     HotkeyTriggered { identifier: String },
 }
 
-/// IPC server that manages hotkey operations and client connections.
+/// IPC server that manages hotkey operations for a single client.
 ///
-/// The server runs in a separate process and communicates with clients
-/// via Unix domain sockets. It maintains a pre-configured HotkeyManager
-/// and forwards hotkey events to connected clients.
+/// The server runs in a separate process and communicates with one client
+/// via Unix domain socket. It maintains a pre-configured HotkeyManager
+/// and forwards hotkey events to the connected client.
 ///
-/// By default, the server operates in single-client mode where it
-/// automatically shuts down when the client disconnects. This ensures
-/// clean process management for one-to-one client-server relationships.
+/// The server automatically shuts down when the client disconnects,
+/// ensuring clean process management.
 pub struct IPCServer {
     socket_path: PathBuf,
     manager: Arc<HotkeyManager>,
-    event_senders: Arc<Mutex<Vec<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
-    single_client: bool,
+    event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
 }
 
 impl IPCServer {
@@ -80,49 +78,31 @@ impl IPCServer {
     /// The server will bind to the specified Unix domain socket path.
     /// Hotkeys must be configured on the HotkeyManager before creating
     /// the server, as dynamic binding is not supported through IPC.
-    ///
-    /// Defaults to single-client mode for automatic cleanup.
     pub fn new(socket_path: impl Into<PathBuf>, manager: HotkeyManager) -> Self {
         let socket_path = socket_path.into();
-        let event_senders = Arc::new(Mutex::new(Vec::new()));
+        let event_sender = Arc::new(Mutex::new(None));
 
         Self {
             socket_path,
             manager: Arc::new(manager),
-            event_senders,
-            single_client: true, // Default to single-client mode
+            event_sender,
         }
     }
 
-    /// Set whether the server should shut down when the last client disconnects.
-    ///
-    /// In single-client mode (default), the server will automatically exit when
-    /// its client disconnects, ensuring no orphaned processes. This is ideal
-    /// for applications with a one-to-one client-server relationship.
-    ///
-    /// In multi-client mode, the server continues running after clients disconnect
-    /// and can accept new connections.
-    pub fn set_single_client(mut self, single_client: bool) -> Self {
-        self.single_client = single_client;
-        self
-    }
-
-    /// Get a reference to the event senders for setting up hotkey callbacks.
+    /// Get a reference to the event sender for setting up hotkey callbacks.
     ///
     /// This is used with `create_event_forwarder` to create callbacks that
-    /// forward hotkey events to all connected IPC clients. The event senders
-    /// are managed internally and cleaned up when clients disconnect.
-    pub fn event_senders(
+    /// forward hotkey events to the connected IPC client.
+    pub fn event_sender(
         &self,
-    ) -> Arc<Mutex<Vec<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>> {
-        self.event_senders.clone()
+    ) -> Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>> {
+        self.event_sender.clone()
     }
 
-    /// Run the IPC server, accepting client connections and processing requests.
+    /// Run the IPC server, accepting a single client connection.
     ///
-    /// This method will block until the server shuts down. In single-client mode,
-    /// the server exits when the client disconnects. In multi-client mode, it
-    /// runs until explicitly shut down.
+    /// This method will block until the server shuts down. The server
+    /// exits when the client disconnects.
     ///
     /// The server automatically removes any existing socket file at the path
     /// before binding to ensure a clean start.
@@ -132,37 +112,22 @@ impl IPCServer {
 
         let listener = UnixListener::bind(&self.socket_path)?;
 
-        if self.single_client {
-            // In single-client mode, accept one connection and exit when it disconnects
-            let (stream, _) = listener.accept().await?;
-            let manager = self.manager.clone();
-            let event_senders = self.event_senders.clone();
+        // Accept single connection and handle it
+        let (stream, _) = listener.accept().await?;
+        let manager = self.manager.clone();
+        let event_sender = self.event_sender.clone();
 
-            println!("Single client connected, server will exit when client disconnects");
-            handle_client(stream, manager, event_senders).await?;
-            println!("Client disconnected, shutting down server");
-        } else {
-            // Multi-client mode
-            loop {
-                let (stream, _) = listener.accept().await?;
-                let manager = self.manager.clone();
-                let event_senders = self.event_senders.clone();
-
-                tokio::spawn(async move {
-                    if let Err(e) = handle_client(stream, manager, event_senders).await {
-                        eprintln!("Client error: {e}");
-                    }
-                });
-            }
-        }
+        println!("Client connected, server will exit when client disconnects");
+        handle_client(stream, manager, event_sender).await?;
+        println!("Client disconnected, shutting down server");
 
         Ok(())
     }
 }
 
-/// Handle a single client connection, processing requests and forwarding events.
+/// Handle the client connection, processing requests and forwarding events.
 ///
-/// This function manages the bidirectional communication with a client:
+/// This function manages the bidirectional communication with the client:
 /// - Reads requests and sends responses
 /// - Forwards hotkey events to the client
 /// - Cleans up when the client disconnects
@@ -171,10 +136,10 @@ impl IPCServer {
 async fn handle_client(
     stream: UnixStream,
     manager: Arc<HotkeyManager>,
-    event_senders: Arc<Mutex<Vec<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
+    event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
-    event_senders.lock().unwrap().push(event_tx.clone());
+    *event_sender.lock().unwrap() = Some(event_tx.clone());
 
     let (reader, writer) = stream.into_split();
     let reader = Arc::new(tokio::sync::Mutex::new(reader));
@@ -235,8 +200,8 @@ async fn handle_client(
         }
     }
 
-    // Remove event sender
-    event_senders.lock().unwrap().retain(|tx| !tx.is_closed());
+    // Clear event sender
+    *event_sender.lock().unwrap() = None;
 
     Ok(())
 }
@@ -385,21 +350,20 @@ impl IPCConnection {
     }
 }
 
-/// Creates a callback that forwards hotkey events to all connected IPC clients.
+/// Creates a callback that forwards hotkey events to the connected IPC client.
 ///
 /// This function returns a closure that can be used as a hotkey callback.
-/// When a hotkey is triggered, it sends a HotkeyTriggered event to all
-/// connected IPC clients through their event channels.
+/// When a hotkey is triggered, it sends a HotkeyTriggered event to the
+/// connected IPC client through the event channel.
 ///
-/// Use this with the event_senders from an IPCServer to bridge hotkey
-/// events to IPC clients. The callback is thread-safe and can be cloned
+/// Use this with the event_sender from an IPCServer to bridge hotkey
+/// events to the IPC client. The callback is thread-safe and can be cloned
 /// for multiple hotkeys.
 pub fn create_event_forwarder(
-    event_senders: Arc<Mutex<Vec<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
+    event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
 ) -> impl Fn(&str) + Send + Sync + 'static {
     move |identifier| {
-        let senders = event_senders.lock().unwrap();
-        for sender in senders.iter() {
+        if let Some(sender) = event_sender.lock().unwrap().as_ref() {
             let _ = sender.send(IPCResponse::HotkeyTriggered {
                 identifier: identifier.to_string(),
             });
