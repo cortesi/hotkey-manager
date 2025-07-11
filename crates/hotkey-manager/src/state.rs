@@ -43,10 +43,10 @@ impl State {
                         None
                     }
                 }
-                // All other actions - reset if nopop is false
+                // All other actions - reset if noexit is false
                 _ => {
                     let result = action.clone();
-                    if !attrs.nopop {
+                    if !attrs.noexit {
                         self.reset();
                     }
                     Some(result)
@@ -76,18 +76,19 @@ mod tests {
 
     #[test]
     fn test_state_navigation() {
-        let mode2 = Mode::from_bindings([
-            ("p", "Back", Action::Pop),
-            ("s", "Shell", Action::shell("ls")),
-            ("e", "Exit", Action::Exit),
-        ]);
-
-        let root = Mode::from_bindings([
-            ("q", "Exit", Action::Exit),
-            ("2", "Mode 2", Action::Mode(mode2)),
-            ("h", "Hello", Action::shell("echo hello")),
-            ("p", "Pop", Action::Pop), // Add pop to root to test Exit behavior
-        ]);
+        let root: Mode = ron::from_str(
+            r#"[
+            ("q", "Exit", exit),
+            ("2", "Mode 2", mode([
+                ("p", "Back", pop),
+                ("s", "Shell", shell("ls")),
+                ("e", "Exit", exit),
+            ])),
+            ("h", "Hello", shell("echo hello")),
+            ("p", "Pop", pop),
+        ]"#,
+        )
+        .unwrap();
 
         let mut state = State::new(root);
 
@@ -125,9 +126,14 @@ mod tests {
 
     #[test]
     fn test_state_reset() {
-        let nested = Mode::from_bindings([("x", "Exit", Action::Exit)]);
-
-        let root = Mode::from_bindings([("n", "Nested", Action::Mode(nested))]);
+        let root: Mode = ron::from_str(
+            r#"[
+            ("n", "Nested", mode([
+                ("x", "Exit", exit),
+            ])),
+        ]"#,
+        )
+        .unwrap();
 
         let mut state = State::new(root);
 
@@ -142,7 +148,12 @@ mod tests {
 
     #[test]
     fn test_unknown_keys() {
-        let root = Mode::from_bindings([("a", "Action", Action::shell("test"))]);
+        let root: Mode = ron::from_str(
+            r#"[
+            ("a", "Action", shell("test")),
+        ]"#,
+        )
+        .unwrap();
 
         let mut state = State::new(root);
 
@@ -152,15 +163,15 @@ mod tests {
     }
 
     #[test]
-    fn test_nopop_behavior() {
-        // Create modes with nopop actions
+    fn test_noexit_behavior() {
+        // Create modes with noexit actions
         let ron_text = r#"[
             ("m", "Menu", mode([
                 ("n", "Normal", shell("echo normal")),
-                ("s", "Sticky", shell("echo sticky"), (nopop: true)),
+                ("s", "Sticky", shell("echo sticky"), (noexit: true)),
                 ("d", "Deep", mode([
                     ("x", "Execute", shell("echo deep")),
-                    ("y", "Sticky Deep", shell("echo sticky deep"), (nopop: true)),
+                    ("y", "Sticky Deep", shell("echo sticky deep"), (noexit: true)),
                 ])),
             ])),
         ]"#;
