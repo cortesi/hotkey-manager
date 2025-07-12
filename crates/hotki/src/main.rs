@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use tokio::{signal, time::sleep};
 use tracing::{debug, error, info, trace};
@@ -39,7 +40,7 @@ struct Args {
     log_level: LogLevel,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     // Configure log level based on CLI argument
@@ -73,25 +74,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     } else {
         info!("Starting hotki in client mode");
-        run_client()
+        let runtime = tokio::runtime::Runtime::new().context("Failed to create Tokio runtime")?;
+        runtime.block_on(client_main())
     }
 }
 
-/// Run the client and spawn the server process
-fn run_client() -> Result<(), Box<dyn std::error::Error>> {
-    // Create runtime for async operations
-    let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(client_main())
-}
-
-async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
+async fn client_main() -> Result<()> {
     let shutdown_sent = Arc::new(AtomicBool::new(false));
     info!("Starting client");
     let mut client = Client::new()
-        .with_server_executable(env::current_exe()?)
+        .with_server_executable(
+            env::current_exe().context("Failed to get current executable path")?,
+        )
         .with_server_startup_timeout(Duration::from_millis(SERVER_STARTUP_DELAY_MS))
         .connect()
-        .await?;
+        .await
+        .context("Failed to connect to hotkey server")?;
 
     info!("Connected to server (PID: {:?})", client.server_pid());
 
@@ -106,23 +104,21 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Get the connection
-    let connection = client.connection()?;
+    let connection = client
+        .connection()
+        .context("Failed to get client connection")?;
 
     // Run main logic
     let result = async {
         let keys = vec![("quit".to_string(), Key::parse("q").unwrap())];
 
-        match connection.rebind(&keys).await {
-            Ok(()) => {
-                info!("Successfully bound hotkeys via IPC");
-                println!("Successfully bound hotkeys");
-            }
-            Err(e) => {
-                error!("Failed to rebind hotkeys: {e}");
-                // Error already logged above
-                return Err(e.into());
-            }
-        }
+        connection
+            .rebind(&keys)
+            .await
+            .context("Failed to rebind hotkeys")?;
+
+        info!("Successfully bound hotkeys via IPC");
+        println!("Successfully bound hotkeys");
 
         // Wait for quit event
         println!("\nPress 'q' to quit, or Ctrl+C to test graceful shutdown...");
@@ -149,7 +145,6 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         Err(e) => {
                             error!("Error receiving event: {e}");
-                            // Error already logged above
                             break;
                         }
                     }
@@ -166,11 +161,14 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        Ok::<(), Box<dyn std::error::Error>>(())
+        Ok(())
     }
     .await;
 
     println!("\nShutting down...");
-    client.disconnect(true).await?;
+    client
+        .disconnect(true)
+        .await
+        .context("Failed to disconnect client")?;
     result
 }
