@@ -85,6 +85,15 @@ impl Mode {
             .map(|(_, _, action, attrs)| (action, attrs))
     }
 
+    /// Get all keys in this mode
+    ///
+    /// Returns an iterator over tuples of (key, description)
+    pub fn keys(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.keys
+            .iter()
+            .map(|(k, desc, _, _)| (k.as_str(), desc.as_str()))
+    }
+
     /// Validate all key bindings in this mode and nested modes
     pub fn validate(&self) -> Result<(), String> {
         for (key, name, action, _) in &self.keys {

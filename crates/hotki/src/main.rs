@@ -13,6 +13,7 @@ use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use hotkey_manager::{Client, IPCResponse, Key, Server};
+use keymode::{Action, Mode, State};
 
 #[derive(Debug, Clone, ValueEnum)]
 enum LogLevel {
@@ -27,6 +28,10 @@ enum LogLevel {
 #[command(name = "hotki")]
 #[command(about = "Hotkey manager client and server", long_about = None)]
 struct Args {
+    /// Path to RON mode definition file
+    #[arg(required_unless_present = "server")]
+    config: Option<std::path::PathBuf>,
+
     /// Run in server mode
     #[arg(long)]
     server: bool,
@@ -71,11 +76,31 @@ fn main() -> Result<()> {
     } else {
         info!("Starting hotki client");
         let runtime = tokio::runtime::Runtime::new().context("Failed to create Tokio runtime")?;
-        runtime.block_on(client_main())
+        runtime.block_on(client_main(args.config))
     }
 }
 
-async fn client_main() -> Result<()> {
+async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
+    // Load and parse RON mode definition
+    let path = config_path.expect("Config path is required for client mode");
+    info!("Loading mode configuration from: {:?}", path);
+    let ron_content = std::fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read config file: {:?}", path))?;
+
+    let mode = match Mode::from_ron(&ron_content) {
+        Ok(mode) => {
+            info!("Successfully parsed mode configuration");
+            mode
+        }
+        Err(e) => {
+            error!("Failed to parse RON mode definition: {}", e);
+            return Err(anyhow::anyhow!("Invalid mode configuration: {}", e));
+        }
+    };
+
+    // Create keymode state
+    let mut state = State::new(mode);
+
     let shutdown_sent = Arc::new(AtomicBool::new(false));
     let mut client = Client::new()
         .with_auto_spawn_server()
@@ -102,32 +127,65 @@ async fn client_main() -> Result<()> {
 
     // Run main logic
     let result = async {
-        let keys = vec![("quit".to_string(), Key::parse("q").unwrap())];
+        // Bind keys from the current mode
+        let current_mode = state.mode();
+        let keys: Vec<(String, Key)> = current_mode
+            .keys()
+            .filter_map(|(key_str, desc)| match Key::parse(key_str) {
+                Ok(key) => {
+                    info!("Binding key '{}': {}", key_str, desc);
+                    Some((key_str.to_string(), key))
+                }
+                Err(e) => {
+                    error!("Failed to parse key '{}': {}", key_str, e);
+                    None
+                }
+            })
+            .collect();
 
         connection
             .rebind(&keys)
             .await
             .context("Failed to rebind hotkeys")?;
 
-        info!("Successfully bound hotkeys via IPC");
-        info!("Press 'q' to quit, or Ctrl+C to test graceful shutdown...");
+        info!("Successfully bound {} hotkeys", keys.len());
         debug!("Starting event listener loop");
+
         tokio::select! {
             _ = async {
                 loop {
                     match connection.recv_event().await {
                         Ok(IPCResponse::HotkeyTriggered { identifier }) => {
-                            info!("Received hotkey event: {identifier}");
-                            if identifier == "quit" {
-                                info!("Quit hotkey pressed - shutting down...");
-                                break;
+                            debug!("Received hotkey event: {}", identifier);
+
+                            // Process the key through the state
+                            if let Some(action) = state.key(&identifier) {
+                                info!("Action triggered: {:?}", action);
+
+                                match action {
+                                    Action::Exit => {
+                                        info!("Exit action - shutting down...");
+                                        break;
+                                    }
+                                    Action::Shell(cmd) => {
+                                        println!("Shell command: {}", cmd);
+                                    }
+                                    Action::Mode(_) => {
+                                        println!("Mode change (would rebind keys)");
+                                    }
+                                    Action::Pop => {
+                                        println!("Pop (would rebind to previous mode)");
+                                    }
+                                }
+                            } else {
+                                debug!("Key '{}' not found in current mode", identifier);
                             }
                         }
                         Ok(response) => {
-                            info!("Received unexpected response: {response:?}");
+                            info!("Received unexpected response: {:?}", response);
                         }
                         Err(e) => {
-                            error!("Error receiving event: {e}");
+                            error!("Error receiving event: {}", e);
                             break;
                         }
                     }

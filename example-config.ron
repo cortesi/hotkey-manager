@@ -1,0 +1,16 @@
+[
+    ("q", "Quit", exit),
+    ("h", "Say Hello", shell("echo 'Hello from hotki!'")),
+    ("t", "Show Time", shell("date")),
+    ("g", "Git Menu", mode([
+        ("s", "Git Status", shell("git status")),
+        ("l", "Git Log", shell("git log --oneline -10"), (noexit: true)),
+        ("d", "Git Diff", shell("git diff")),
+        ("q", "Back", pop),
+    ])),
+    ("w", "Window Menu", mode([
+        ("m", "Maximize", shell("echo 'Maximizing window'")),
+        ("c", "Close", shell("echo 'Closing window'")),
+        ("q", "Back", pop),
+    ])),
+]

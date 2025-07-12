@@ -1,0 +1,7 @@
+[
+    ("a", "action", shell("echo a")),
+    ("m", "mode", mode([
+         ("a", "action", shell("mode echo a"))
+    ])),
+    ("q", "quit", exit),
+]
