@@ -23,4 +23,4 @@ pub use error::{Error, Result};
 pub use key::Key;
 pub use manager::{HotkeyCallback, HotkeyManager};
 pub use process::{ProcessBuilder, ProcessConfig, ServerProcess};
-pub use server::HotkeyServer;
+pub use server::Server;

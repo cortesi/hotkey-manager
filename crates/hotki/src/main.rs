@@ -13,7 +13,7 @@ use tokio::{signal, time::sleep};
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use hotkey_manager::{Client, HotkeyServer, Key, ipc::IPCResponse};
+use hotkey_manager::{Client, Key, Server, ipc::IPCResponse};
 
 /// Delay to wait for server startup
 const SERVER_STARTUP_DELAY_MS: u64 = 500;
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
 
     if args.server {
         info!("Starting hotki in server mode");
-        HotkeyServer::new().run()?;
+        Server::new().run()?;
         Ok(())
     } else {
         info!("Starting hotki in client mode");

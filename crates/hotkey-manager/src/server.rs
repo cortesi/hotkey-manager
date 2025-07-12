@@ -8,17 +8,17 @@ use tao::event_loop::{ControlFlow, EventLoop};
 use tracing::{debug, error, info, trace};
 
 /// A hotkey server that manages the event loop and IPC communication
-pub struct HotkeyServer {
+pub struct Server {
     socket_path: String,
 }
 
-impl Default for HotkeyServer {
+impl Default for Server {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HotkeyServer {
+impl Server {
     /// Create a new hotkey server with default configuration
     pub fn new() -> Self {
         Self {
@@ -136,24 +136,24 @@ mod tests {
     #[test]
     fn test_server_with_methods() {
         // Test with_socket_path
-        let server = HotkeyServer::new().with_socket_path("/custom/path.sock");
+        let server = Server::new().with_socket_path("/custom/path.sock");
         assert_eq!(server.socket_path, "/custom/path.sock");
 
         // Test chaining from new_with_socket
-        let server = HotkeyServer::new_with_socket("/initial/path.sock")
-            .with_socket_path("/another/path.sock");
+        let server =
+            Server::new_with_socket("/initial/path.sock").with_socket_path("/another/path.sock");
         assert_eq!(server.socket_path, "/another/path.sock");
     }
 
     #[test]
     fn test_server_new_with_socket() {
-        let server = HotkeyServer::new_with_socket("/test/path.sock");
+        let server = Server::new_with_socket("/test/path.sock");
         assert_eq!(server.socket_path, "/test/path.sock");
     }
 
     #[test]
     fn test_server_default() {
-        let server = HotkeyServer::default();
+        let server = Server::default();
         assert_eq!(server.socket_path, DEFAULT_SOCKET_PATH);
     }
 }
