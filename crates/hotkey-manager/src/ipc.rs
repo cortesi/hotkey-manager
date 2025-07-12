@@ -153,7 +153,7 @@ async fn handle_client(
     debug!("handle_client: Starting client handler");
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
     trace!("handle_client: Created event channel");
-    *event_sender.lock().unwrap() = Some(event_tx.clone());
+    *event_sender.lock().expect("event_sender mutex poisoned") = Some(event_tx.clone());
     debug!("handle_client: Set event sender in shared state");
 
     let (reader, writer) = stream.into_split();
@@ -235,7 +235,7 @@ async fn handle_client(
     }
 
     // Clear event sender
-    *event_sender.lock().unwrap() = None;
+    *event_sender.lock().expect("event_sender mutex poisoned") = None;
 
     Ok(())
 }
@@ -443,7 +443,7 @@ pub fn create_event_forwarder(
 ) -> impl Fn(&str) + Send + Sync + Clone + 'static {
     move |identifier| {
         trace!("Event forwarder called for identifier: '{}'", identifier);
-        if let Some(sender) = event_sender.lock().unwrap().as_ref() {
+        if let Some(sender) = event_sender.lock().expect("event_sender mutex poisoned").as_ref() {
             debug!(
                 "Sending HotkeyTriggered event for identifier: '{}'",
                 identifier

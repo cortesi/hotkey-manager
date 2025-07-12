@@ -149,7 +149,7 @@ impl HotkeyManager {
 
         // Store the hotkey entry
         trace!("Acquiring hotkeys lock...");
-        let mut hotkeys = self.hotkeys.lock().unwrap();
+        let mut hotkeys = self.hotkeys.lock().expect("hotkeys mutex poisoned");
         let id = hotkey.id();
         trace!("Hotkey ID from hotkey.id(): {}", id);
         let entry = HotkeyEntry {
@@ -197,7 +197,7 @@ impl HotkeyManager {
     /// Returns an error if the hotkey is not found or unregistration fails.
     pub fn unbind(&self, id: u32) -> Result<()> {
         debug!("Unbinding hotkey with id {}", id);
-        let mut hotkeys = self.hotkeys.lock().unwrap();
+        let mut hotkeys = self.hotkeys.lock().expect("hotkeys mutex poisoned");
 
         if let Some(entry) = hotkeys.remove(&id) {
             info!("Unregistering hotkey '{}' (id: {})", entry.identifier, id);
@@ -217,7 +217,7 @@ impl HotkeyManager {
     /// Returns an error if any hotkey fails to unregister.
     pub fn unbind_all(&self) -> Result<()> {
         debug!("Unbinding all hotkeys");
-        let mut hotkeys = self.hotkeys.lock().unwrap();
+        let mut hotkeys = self.hotkeys.lock().expect("hotkeys mutex poisoned");
         let count = hotkeys.len();
         trace!("Found {} hotkeys to unbind", count);
 

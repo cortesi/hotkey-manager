@@ -42,6 +42,7 @@ impl Key {
         }
 
         // The last part should be the key code
+        // SAFETY: unwrap is safe here because we checked parts.is_empty() above
         let key_part = parts.last().unwrap();
         let modifier_parts = &parts[..parts.len() - 1];
 
