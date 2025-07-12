@@ -28,7 +28,8 @@ use tokio::{
 
 use crate::{
     error::{Error, Result},
-    HotkeyManager, Key,
+    manager::HotkeyManager,
+    Key,
 };
 use tracing::{debug, error, info, trace, warn};
 
@@ -79,7 +80,7 @@ pub enum IPCResponse {
 ///
 /// The server automatically shuts down when the client disconnects,
 /// ensuring clean process management.
-pub struct IPCServer {
+pub(crate) struct IPCServer {
     socket_path: PathBuf,
     manager: Arc<HotkeyManager>,
     event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
@@ -91,7 +92,7 @@ impl IPCServer {
     /// The server will bind to the specified Unix domain socket path.
     /// Hotkeys must be configured on the HotkeyManager before creating
     /// the server, as dynamic binding is not supported through IPC.
-    pub fn new(socket_path: impl Into<PathBuf>, manager: HotkeyManager) -> Self {
+    pub(crate) fn new(socket_path: impl Into<PathBuf>, manager: HotkeyManager) -> Self {
         let socket_path = socket_path.into();
         let event_sender = Arc::new(Mutex::new(None));
 
@@ -101,7 +102,6 @@ impl IPCServer {
             event_sender,
         }
     }
-
 
     /// Run the IPC server, accepting a single client connection.
     ///
@@ -376,23 +376,6 @@ impl IPCConnection {
     ///
     /// This operation is atomic - if any binding fails, all existing hotkeys
     /// are restored. The keys parameter should contain (identifier, key) pairs.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use hotkey_manager::ipc::IPCClient;
-    /// use hotkey_manager::Key;
-    ///
-    /// let client = IPCClient::new("/tmp/hotkeys.sock");
-    /// let mut conn = client.connect().await?;
-    ///
-    /// conn.rebind(&[
-    ///     ("copy".to_string(), Key::parse("ctrl+c")?),
-    ///     ("paste".to_string(), Key::parse("ctrl+v")?),
-    /// ]).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn rebind(&mut self, keys: &[(String, Key)]) -> Result<()> {
         self.send_request(&IPCRequest::Rebind {
             keys: keys.to_vec(),
@@ -434,7 +417,11 @@ pub(crate) fn create_event_forwarder(
 ) -> impl Fn(&str) + Send + Sync + Clone + 'static {
     move |identifier| {
         trace!("Event forwarder called for identifier: '{}'", identifier);
-        if let Some(sender) = event_sender.lock().expect("event_sender mutex poisoned").as_ref() {
+        if let Some(sender) = event_sender
+            .lock()
+            .expect("event_sender mutex poisoned")
+            .as_ref()
+        {
             debug!(
                 "Sending HotkeyTriggered event for identifier: '{}'",
                 identifier

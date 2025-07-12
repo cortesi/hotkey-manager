@@ -1,5 +1,6 @@
 use crate::ipc::IPCServer;
-use crate::{Error, HotkeyManager, Result, DEFAULT_SOCKET_PATH};
+use crate::manager::HotkeyManager;
+use crate::{Error, Result, DEFAULT_SOCKET_PATH};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -25,7 +26,6 @@ impl Server {
             socket_path: DEFAULT_SOCKET_PATH.to_string(),
         }
     }
-
 
     /// Set the socket path for IPC communication
     pub fn with_socket_path(mut self, path: impl Into<String>) -> Self {
@@ -134,11 +134,11 @@ mod tests {
         assert_eq!(server.socket_path, "/custom/path.sock");
 
         // Test chaining from new
-        let server =
-            Server::new().with_socket_path("/initial/path.sock").with_socket_path("/another/path.sock");
+        let server = Server::new()
+            .with_socket_path("/initial/path.sock")
+            .with_socket_path("/another/path.sock");
         assert_eq!(server.socket_path, "/another/path.sock");
     }
-
 
     #[test]
     fn test_server_default() {

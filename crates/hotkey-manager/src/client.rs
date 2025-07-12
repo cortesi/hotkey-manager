@@ -1,11 +1,23 @@
 use crate::ipc::{IPCClient, IPCConnection};
-use crate::{Error, ProcessConfig, Result, ServerProcess, DEFAULT_SOCKET_PATH};
+use crate::process::ProcessConfig;
+use crate::{Error, Result, ServerProcess, DEFAULT_SOCKET_PATH};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, error, info, warn};
 
-/// A managed client that can automatically spawn and connect to a server
+/// A client for connecting to a hotkey server.
+///
+/// The client will attempt to connect to an existing server at the configured socket path.
+/// If no server is running and auto-spawn is configured, it will spawn a new server process.
+///
+/// # Server Spawning
+///
+/// By default, the client will only connect to existing servers. To enable automatic
+/// server spawning, use one of these methods:
+///
+/// - [`with_auto_spawn_server()`](Self::with_auto_spawn_server) - Uses the current executable with `--server` flag
+/// - [`with_server_command()`](Self::with_server_command) - Uses a custom command
 pub struct Client {
     /// Socket path for IPC communication
     socket_path: String,
@@ -66,15 +78,35 @@ impl Client {
         self
     }
 
-    /// Set the server configuration for automatic spawning
-    pub fn with_server(mut self, config: ProcessConfig) -> Self {
-        self.server_config = Some(config);
+    /// Enable automatic server spawning using the default command.
+    ///
+    /// The default command is the current executable with the "--server" argument.
+    /// This is equivalent to calling `with_server_command(current_exe, ["--server"])`.
+    pub fn with_auto_spawn_server(mut self) -> Self {
+        if let Ok(current_exe) = std::env::current_exe() {
+            self.server_config = Some(ProcessConfig::new(current_exe));
+        }
         self
     }
 
-    /// Set the server executable for automatic spawning (convenience method)
-    pub fn with_server_executable(mut self, executable: impl Into<PathBuf>) -> Self {
-        self.server_config = Some(ProcessConfig::new(executable));
+    /// Set a custom server command for automatic spawning.
+    ///
+    /// Use this when you want to spawn a server with a specific command
+    /// instead of the default (current executable with "--server" flag).
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to run (e.g., "/path/to/server")
+    /// * `args` - Additional arguments to pass to the server command
+    pub fn with_server_command<S, I, A>(mut self, command: S, args: I) -> Self
+    where
+        S: Into<PathBuf>,
+        I: IntoIterator<Item = A>,
+        A: AsRef<str>,
+    {
+        let mut config = ProcessConfig::new(command);
+        config.args = args.into_iter().map(|s| s.as_ref().to_string()).collect();
+        self.server_config = Some(config);
         self
     }
 
@@ -271,12 +303,10 @@ impl Client {
         Ok(())
     }
 
-    /// Get the server process if we spawned one
-    pub fn server(&self) -> Option<&ServerProcess> {
-        self.server.as_ref()
-    }
-
-    /// Get the server PID if we spawned a server
+    /// Get the PID of the spawned server process, if any.
+    ///
+    /// Returns `None` if no server was spawned (e.g., connected to an existing server)
+    /// or if the server process has terminated.
     pub fn server_pid(&self) -> Option<u32> {
         self.server.as_ref().and_then(|s| s.pid())
     }

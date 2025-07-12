@@ -12,7 +12,7 @@ pub(crate) const DEFAULT_STARTUP_DELAY: Duration = Duration::from_millis(500);
 
 /// Configuration for launching a hotkey server process
 #[derive(Debug, Clone)]
-pub struct ProcessConfig {
+pub(crate) struct ProcessConfig {
     /// Path to the executable
     pub executable: PathBuf,
     /// Arguments to pass to the server
@@ -36,36 +36,6 @@ impl ProcessConfig {
             inherit_env: true,
         }
     }
-
-    /// Add an argument to pass to the server
-    pub fn arg(mut self, arg: impl Into<String>) -> Self {
-        self.args.push(arg.into());
-        self
-    }
-
-    /// Add multiple arguments
-    pub fn args(mut self, args: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.args.extend(args.into_iter().map(|s| s.into()));
-        self
-    }
-
-    /// Set an environment variable
-    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.env.push((key.into(), value.into()));
-        self
-    }
-
-    /// Set the startup delay
-    pub fn startup_delay(mut self, delay: Duration) -> Self {
-        self.startup_delay = delay;
-        self
-    }
-
-    /// Set whether to inherit the parent's environment
-    pub fn inherit_env(mut self, inherit: bool) -> Self {
-        self.inherit_env = inherit;
-        self
-    }
 }
 
 /// A managed server process for hotkey handling
@@ -77,7 +47,7 @@ pub struct ServerProcess {
 
 impl ServerProcess {
     /// Create a new server process with the given configuration
-    pub fn new(config: ProcessConfig) -> Self {
+    pub(crate) fn new(config: ProcessConfig) -> Self {
         Self {
             child: None,
             config,
@@ -86,7 +56,7 @@ impl ServerProcess {
     }
 
     /// Start the server process
-    pub async fn start(&mut self) -> Result<()> {
+    pub(crate) async fn start(&mut self) -> Result<()> {
         if self.is_running() {
             return Err(Error::HotkeyOperation(
                 "Server is already running".to_string(),
@@ -136,7 +106,7 @@ impl ServerProcess {
     }
 
     /// Stop the server process
-    pub async fn stop(&mut self) -> Result<()> {
+    pub(crate) async fn stop(&mut self) -> Result<()> {
         if let Some(mut child) = self.child.take() {
             info!("Stopping server process");
 
@@ -162,16 +132,8 @@ impl ServerProcess {
         Ok(())
     }
 
-    /// Restart the server process
-    pub async fn restart(&mut self) -> Result<()> {
-        info!("Restarting server process");
-        self.stop().await?;
-        self.start().await?;
-        Ok(())
-    }
-
     /// Check if the server process is running
-    pub fn is_running(&self) -> bool {
+    pub(crate) fn is_running(&self) -> bool {
         if let Some(child) = self.child.as_ref() {
             // Try to get the process status without waiting
             match std::process::Command::new("kill")
@@ -198,11 +160,6 @@ impl ServerProcess {
     pub fn pid(&self) -> Option<u32> {
         self.child.as_ref().map(|c| c.id())
     }
-
-    /// Get a reference to the process configuration
-    pub fn config(&self) -> &ProcessConfig {
-        &self.config
-    }
 }
 
 impl Drop for ServerProcess {
@@ -224,28 +181,18 @@ impl Drop for ServerProcess {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_process_config() {
-        let config = ProcessConfig::new("/usr/bin/test")
-            .arg("--verbose")
-            .args(vec!["--port", "8080"])
-            .env("RUST_LOG", "debug")
-            .startup_delay(Duration::from_secs(1))
-            .inherit_env(false);
+        let config = ProcessConfig::new("/usr/bin/test");
 
         assert_eq!(config.executable, PathBuf::from("/usr/bin/test"));
-        assert_eq!(config.args, vec!["--server", "--verbose", "--port", "8080"]);
-        assert_eq!(
-            config.env,
-            vec![("RUST_LOG".to_string(), "debug".to_string())]
-        );
-        assert_eq!(config.startup_delay, Duration::from_secs(1));
-        assert!(!config.inherit_env);
+        assert_eq!(config.args, vec!["--server"]);
+        assert_eq!(config.env, Vec::<(String, String)>::new());
+        assert_eq!(config.startup_delay, DEFAULT_STARTUP_DELAY);
+        assert!(config.inherit_env);
     }
-
 }

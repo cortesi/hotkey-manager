@@ -25,14 +25,6 @@ impl Key {
     /// - "ctrl+a" (with modifiers)
     /// - "cmd+shift+a" (multiple modifiers)
     /// - "control+alt+delete" (alternative names)
-    ///
-    /// # Example
-    /// ```
-    /// use hotkey_manager::Key;
-    ///
-    /// let key = Key::parse("ctrl+a").unwrap();
-    /// let key2 = Key::parse("cmd+shift+n").unwrap();
-    /// ```
     pub fn parse(s: &str) -> Result<Self> {
         // Split by '+' to separate modifiers and key
         let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();

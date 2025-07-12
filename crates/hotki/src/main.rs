@@ -1,5 +1,4 @@
 use std::{
-    env,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -13,7 +12,7 @@ use tokio::{signal, time::sleep};
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use hotkey_manager::{Client, Key, Server, ipc::IPCResponse};
+use hotkey_manager::{Client, IPCResponse, Key, Server};
 
 #[derive(Debug, Clone, ValueEnum)]
 enum LogLevel {
@@ -79,9 +78,7 @@ fn main() -> Result<()> {
 async fn client_main() -> Result<()> {
     let shutdown_sent = Arc::new(AtomicBool::new(false));
     let mut client = Client::new()
-        .with_server_executable(
-            env::current_exe().context("Failed to get current executable path")?,
-        )
+        .with_auto_spawn_server()
         .connect()
         .await
         .context("Failed to connect to hotkey server")?;

@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::Key;
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager};
 use std::collections::HashMap;
@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, trace, warn};
 
 /// Type alias for hotkey callbacks that receive the identifier
-pub type HotkeyCallback = Arc<dyn Fn(&str) + Send + Sync>;
+type HotkeyCallback = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Represents a registered hotkey with its metadata
 struct HotkeyEntry {
@@ -19,7 +19,7 @@ struct HotkeyEntry {
 }
 
 /// A manager for global hotkeys that handles registration and callback execution.
-pub struct HotkeyManager {
+pub(crate) struct HotkeyManager {
     manager: GlobalHotKeyManager,
     hotkeys: Arc<Mutex<HashMap<u32, HotkeyEntry>>>,
 }
@@ -32,7 +32,7 @@ impl HotkeyManager {
     /// # Errors
     ///
     /// Returns an error if the underlying global hotkey manager fails to initialize.
-    pub fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         trace!("Creating new HotkeyManager");
         let manager = GlobalHotKeyManager::new()?;
         debug!("GlobalHotKeyManager created successfully");
@@ -119,7 +119,7 @@ impl HotkeyManager {
     /// # Errors
     ///
     /// Returns an error if the hotkey registration fails.
-    pub fn bind<F>(
+    fn bind<F>(
         &self,
         identifier: impl Into<String>,
         key: impl Into<Key>,
@@ -168,54 +168,12 @@ impl HotkeyManager {
         Ok(id)
     }
 
-    /// Binds a new hotkey from a string representation.
-    ///
-    /// This is a convenience method that parses the key string before binding.
-    pub fn bind_from_str<F>(
-        &self,
-        identifier: impl Into<String>,
-        key_str: &str,
-        callback: F,
-    ) -> Result<u32>
-    where
-        F: Fn(&str) + Send + Sync + 'static,
-    {
-        trace!("Parsing key string: '{}'...", key_str);
-        let key = Key::parse(key_str)?;
-        debug!("Parsed key string '{}' successfully", key_str);
-        self.bind(identifier, key, callback)
-    }
-
-    /// Unbinds a previously registered hotkey.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The ID of the hotkey to unbind
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the hotkey is not found or unregistration fails.
-    pub fn unbind(&self, id: u32) -> Result<()> {
-        debug!("Unbinding hotkey with id {}", id);
-        let mut hotkeys = self.hotkeys.lock().expect("hotkeys mutex poisoned");
-
-        if let Some(entry) = hotkeys.remove(&id) {
-            info!("Unregistering hotkey '{}' (id: {})", entry.identifier, id);
-            self.manager.unregister(entry.hotkey)?;
-            trace!("Hotkey unregistered successfully");
-            Ok(())
-        } else {
-            warn!("Attempted to unbind non-existent hotkey with id {}", id);
-            Err(Error::HotkeyOperation("Hotkey not found".to_string()))
-        }
-    }
-
     /// Unbinds all registered hotkeys.
     ///
     /// # Errors
     ///
     /// Returns an error if any hotkey fails to unregister.
-    pub fn unbind_all(&self) -> Result<()> {
+    pub(crate) fn unbind_all(&self) -> Result<()> {
         debug!("Unbinding all hotkeys");
         let mut hotkeys = self.hotkeys.lock().expect("hotkeys mutex poisoned");
         let count = hotkeys.len();
@@ -240,7 +198,7 @@ impl HotkeyManager {
     /// # Returns
     ///
     /// Returns a vector of results, one for each hotkey binding attempt.
-    pub fn bind_multiple<F, K>(
+    pub(crate) fn bind_multiple<F, K>(
         &self,
         hotkeys: &[(impl Into<String> + Clone, K)],
         callback: F,
