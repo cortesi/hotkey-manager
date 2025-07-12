@@ -12,7 +12,7 @@ use tokio::{signal, time::sleep};
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use hotkey_manager::{Client, IPCResponse, Server};
+use hotkey_manager::{Client, IPCConnection, IPCResponse, Server};
 use keymode::{Action, Mode, State};
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -82,6 +82,77 @@ fn main() -> Result<()> {
     }
 }
 
+/// Process hotkey events in a loop
+async fn process_hotkey_events(connection: &mut IPCConnection, state: &mut State) -> Result<bool> {
+    // Rebind keys for current mode
+    let keys = state.keys();
+    connection
+        .rebind(&keys)
+        .await
+        .context("Failed to rebind hotkeys")?;
+
+    // Print available keys before each event
+    println!("\nCurrent mode (depth: {})", state.depth());
+    println!("Available keys:");
+    for (key, desc) in state.mode().keys() {
+        println!("  {key} - {desc}");
+    }
+    println!("\nWaiting for hotkey press...");
+
+    match connection.recv_event().await {
+        Ok(IPCResponse::HotkeyTriggered { identifier }) => {
+            debug!("Received hotkey event: {}", identifier);
+
+            // Check if this key is a mode transition BEFORE processing it
+            let mode_before = state.mode();
+            let is_mode_key = if let Some((action, _)) = mode_before.get_with_attrs(&identifier) {
+                matches!(action, Action::Mode(_) | Action::Pop)
+            } else {
+                false
+            };
+
+            // Process the key through the state
+            match state.key(&identifier) {
+                Some(action) => {
+                    info!("Action triggered: {:?}", action);
+
+                    match action {
+                        Action::Exit => {
+                            info!("Exit action - shutting down...");
+                            return Ok(true); // Signal to exit
+                        }
+                        Action::Shell(cmd) => {
+                            println!("Shell command: {cmd}");
+                        }
+                        // These cases should never happen since state.key() returns None for them
+                        Action::Mode(_) | Action::Pop => {
+                            unreachable!("Mode/Pop actions should return None from state.key()");
+                        }
+                    }
+                }
+                None => {
+                    // state.key() returns None for Mode/Pop actions and unknown keys
+                    if is_mode_key {
+                        // This was a Mode or Pop action
+                        info!("Mode transition detected - rebinding keys...");
+                    } else {
+                        debug!("Key '{}' not found in current mode", identifier);
+                    }
+                }
+            }
+        }
+        Ok(response) => {
+            info!("Received unexpected response: {:?}", response);
+        }
+        Err(e) => {
+            error!("Error receiving event: {}", e);
+            return Err(e.into());
+        }
+    }
+
+    Ok(false) // Continue processing
+}
+
 async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
     // Load and parse RON mode definition
     let path = config_path.expect("Config path is required for client mode");
@@ -133,75 +204,23 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
         debug!("Starting event listener loop");
 
         tokio::select! {
-            _ = async {
+            result = async {
                 loop {
-                    let keys = state.keys();
-                    connection
-                        .rebind(&keys)
-                        .await
-                        .context("Failed to rebind hotkeys").unwrap();
-
-                    // Print available keys before each event
-                    println!("\nCurrent mode (depth: {})", state.depth());
-                    println!("Available keys:");
-                    for (key, desc) in state.mode().keys() {
-                        println!("  {key} - {desc}");
-                    }
-                    println!("\nWaiting for hotkey press...");
-
-                    match connection.recv_event().await {
-                        Ok(IPCResponse::HotkeyTriggered { identifier }) => {
-                            debug!("Received hotkey event: {}", identifier);
-
-                            // Check if this key is a mode transition BEFORE processing it
-                            let mode_before = state.mode();
-                            let is_mode_key = if let Some((action, _)) = mode_before.get_with_attrs(&identifier) {
-                                matches!(action, Action::Mode(_) | Action::Pop)
-                            } else {
-                                false
-                            };
-
-                            // Process the key through the state
-                            match state.key(&identifier) {
-                                Some(action) => {
-                                    info!("Action triggered: {:?}", action);
-
-                                    match action {
-                                        Action::Exit => {
-                                            info!("Exit action - shutting down...");
-                                            break;
-                                        }
-                                        Action::Shell(cmd) => {
-                                            println!("Shell command: {cmd}");
-                                        }
-                                        // These cases should never happen since state.key() returns None for them
-                                        Action::Mode(_) | Action::Pop => {
-                                            unreachable!("Mode/Pop actions should return None from state.key()");
-                                        }
-                                    }
-                                }
-                                None => {
-                                    // state.key() returns None for Mode/Pop actions and unknown keys
-                                    if is_mode_key {
-                                        // This was a Mode or Pop action
-                                        info!("Mode transition detected - rebinding keys...");
-                                    } else {
-                                        debug!("Key '{}' not found in current mode", identifier);
-                                    }
-                                }
+                    match process_hotkey_events(connection, &mut state).await {
+                        Ok(should_exit) => {
+                            if should_exit {
+                                break Ok(());
                             }
                         }
-                        Ok(response) => {
-                            info!("Received unexpected response: {:?}", response);
-                        }
                         Err(e) => {
-                            error!("Error receiving event: {}", e);
-                            break;
+                            error!("Error processing hotkey event: {}", e);
+                            break Err(e);
                         }
                     }
                 }
             } => {
                 info!("Event loop ended");
+                result
             }
             _ = async {
                 while !shutdown_sent.load(Ordering::SeqCst) {
@@ -209,10 +228,9 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
                 }
             } => {
                 info!("Shutdown requested via Ctrl+C");
+                Ok(())
             }
         }
-
-        Ok(())
     }
     .await;
 
