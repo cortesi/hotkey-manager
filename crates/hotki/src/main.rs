@@ -1,9 +1,8 @@
 use hotkey_manager::{
-    HotkeyManager, Key,
+    HotkeyManager, Key, ProcessBuilder,
     ipc::{IPCClient, IPCConnection, IPCResponse, IPCServer},
 };
 use std::env;
-use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -148,31 +147,27 @@ fn run_server() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Run the client and spawn the server process
 fn run_client() -> Result<(), Box<dyn std::error::Error>> {
-    // Spawn the server process
-    let exe_path = env::current_exe()?;
-    debug!("Spawning server process: {:?} --server", exe_path);
-
-    let mut server_process = Command::new(&exe_path)
-        .arg("--server")
-        .env(
-            "RUST_LOG",
-            env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
-        )
-        .spawn()
-        .map_err(|e| format!("Failed to spawn server process: {e}"))?;
-
-    info!("Server process spawned with PID: {:?}", server_process.id());
-
-    // Run the async client
+    // Create runtime for async operations
     let runtime = tokio::runtime::Runtime::new()?;
-    let result = runtime.block_on(client_main());
+    
+    runtime.block_on(async {
+        // Create and start the server process using our new abstraction
+        let mut server = ProcessBuilder::new(env::current_exe()?)
+            .env("RUST_LOG", env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
+            .start()
+            .await?;
 
-    // Ensure server process is terminated
-    info!("Terminating server process...");
-    let _ = server_process.kill();
-    let _ = server_process.wait();
+        info!("Server process spawned with PID: {:?}", server.pid());
 
-    result
+        // Run the client
+        let result = client_main().await;
+
+        // Server will be automatically stopped when dropped, but we can be explicit
+        info!("Terminating server process...");
+        server.stop().await?;
+
+        result
+    })
 }
 
 async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
