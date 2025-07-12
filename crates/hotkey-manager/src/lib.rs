@@ -10,8 +10,10 @@ pub mod error;
 pub mod ipc;
 pub mod key;
 pub mod manager;
+pub mod process;
 
 // Re-export the main types from modules
 pub use error::{Error, Result};
 pub use key::Key;
 pub use manager::{HotkeyCallback, HotkeyManager};
+pub use process::{ProcessBuilder, ProcessConfig, ServerProcess};
