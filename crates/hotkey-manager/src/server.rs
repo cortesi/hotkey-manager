@@ -1,7 +1,7 @@
-use crate::{Error, Result, HotkeyManager};
 use crate::ipc::IPCServer;
-use std::sync::Arc;
+use crate::{Error, HotkeyManager, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use tao::event::Event;
 use tao::event_loop::{ControlFlow, EventLoop};
@@ -48,25 +48,27 @@ impl HotkeyServer {
         Self { config }
     }
 
-
     /// Run the server
-    /// 
+    ///
     /// This will:
     /// 1. Create a tao event loop on the current thread (must be main thread on macOS)
     /// 2. Create a HotkeyManager
     /// 3. Start an IPC server in a background thread
     /// 4. Run the event loop until shutdown is requested
-    /// 
+    ///
     /// The server will automatically shut down when:
     /// - The IPC client disconnects
     /// - An error occurs in the IPC server
     /// - The event loop is explicitly terminated
     pub fn run(self) -> Result<()> {
-        info!("Starting hotkey server on socket: {}", self.config.socket_path);
+        info!(
+            "Starting hotkey server on socket: {}",
+            self.config.socket_path
+        );
 
         // Create the tao event loop (must be on main thread for macOS)
         let event_loop = EventLoop::new();
-        
+
         // Create the hotkey manager
         debug!("Creating HotkeyManager");
         let manager = HotkeyManager::new()
@@ -93,7 +95,7 @@ impl HotkeyServer {
             };
 
             info!("IPC server thread started, waiting for client connection...");
-            
+
             // Run the IPC server
             runtime.block_on(async {
                 if let Err(e) = ipc_server.run().await {
@@ -153,7 +155,6 @@ impl ServerBuilder {
         }
     }
 
-
     /// Build the HotkeyServer
     pub fn build(self) -> HotkeyServer {
         HotkeyServer::new(self.config)
@@ -166,7 +167,7 @@ impl ServerBuilder {
 }
 
 /// Convenience function to run a hotkey server with default settings
-/// 
+///
 /// This is the simplest way to start a hotkey server:
 /// ```no_run
 /// hotkey_manager::run_server()?;
@@ -176,7 +177,7 @@ pub fn run_server() -> Result<()> {
 }
 
 /// Convenience function to run a hotkey server with a custom socket path
-/// 
+///
 /// Example:
 /// ```no_run
 /// hotkey_manager::run_server_on("/tmp/my-hotkeys.sock")?;

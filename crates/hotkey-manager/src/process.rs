@@ -1,8 +1,8 @@
 use crate::{Error, Result};
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
@@ -88,14 +88,16 @@ impl ServerProcess {
     /// Start the server process
     pub async fn start(&mut self) -> Result<()> {
         if self.is_running() {
-            return Err(Error::HotkeyOperation("Server is already running".to_string()));
+            return Err(Error::HotkeyOperation(
+                "Server is already running".to_string(),
+            ));
         }
 
         info!("Starting server process: {:?}", self.config.executable);
         debug!("Server args: {:?}", self.config.args);
 
         let mut command = Command::new(&self.config.executable);
-        
+
         // Add arguments
         for arg in &self.config.args {
             command.arg(arg);
@@ -105,15 +107,13 @@ impl ServerProcess {
         if !self.config.inherit_env {
             command.env_clear();
         }
-        
+
         for (key, value) in &self.config.env {
             command.env(key, value);
         }
 
         // Spawn the process
-        let child = command
-            .spawn()
-            .map_err(Error::Io)?;
+        let child = command.spawn().map_err(Error::Io)?;
 
         let pid = child.id();
         info!("Server process spawned with PID: {}", pid);
@@ -127,7 +127,9 @@ impl ServerProcess {
 
         // Check if process is still running
         if !self.is_running() {
-            return Err(Error::HotkeyOperation("Server process died during startup".to_string()));
+            return Err(Error::HotkeyOperation(
+                "Server process died during startup".to_string(),
+            ));
         }
 
         Ok(())
@@ -137,7 +139,7 @@ impl ServerProcess {
     pub async fn stop(&mut self) -> Result<()> {
         if let Some(mut child) = self.child.take() {
             info!("Stopping server process");
-            
+
             // Try graceful termination first
             if let Err(e) = child.kill() {
                 error!("Failed to kill server process: {}", e);
@@ -293,7 +295,10 @@ mod tests {
 
         assert_eq!(config.executable, PathBuf::from("/usr/bin/test"));
         assert_eq!(config.args, vec!["--server", "--verbose", "--port", "8080"]);
-        assert_eq!(config.env, vec![("RUST_LOG".to_string(), "debug".to_string())]);
+        assert_eq!(
+            config.env,
+            vec![("RUST_LOG".to_string(), "debug".to_string())]
+        );
         assert_eq!(config.startup_delay, Duration::from_secs(1));
         assert!(!config.inherit_env);
     }

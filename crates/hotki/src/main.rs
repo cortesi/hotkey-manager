@@ -1,16 +1,18 @@
-use hotkey_manager::{
-    Key, ManagedClientBuilder, run_server_on,
-    ipc::IPCResponse,
+use std::{
+    env,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
+
 use clap::{Parser, ValueEnum};
-use std::env;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use tokio::signal;
-use tokio::time::sleep;
+use tokio::{signal, time::sleep};
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
+use hotkey_manager::{Key, ManagedClientBuilder, ipc::IPCResponse, run_server_on};
 
 /// Default socket path for IPC communication
 const DEFAULT_SOCKET_PATH: &str = "/tmp/hotkey-manager.sock";
@@ -59,12 +61,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .without_time()
                 .with_target(false)
                 .with_thread_ids(false)
-                .with_thread_names(false)
+                .with_thread_names(false),
         )
         .with(
             EnvFilter::from_default_env()
                 .add_directive(format!("hotkey_manager={log_level}").parse()?)
-                .add_directive(format!("hotki={log_level}").parse()?)
+                .add_directive(format!("hotki={log_level}").parse()?),
         )
         .init();
 
@@ -101,7 +103,7 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
         .server_startup_timeout(Duration::from_millis(SERVER_STARTUP_DELAY_MS))
         .connect()
         .await?;
-    
+
     info!("Connected to server (PID: {:?})", client.server_pid());
 
     // Set up Ctrl+C handler
@@ -136,11 +138,7 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => error!("Failed to list hotkeys: {e}"),
         }
-
-        // Use the Rebind operation to bind the "q" key
-        println!("\nBinding 'q' key using Rebind operation...");
         let keys = vec![("quit".to_string(), Key::parse("q").unwrap())];
-        debug!("Sending rebind request with keys: {:?}", keys);
 
         match connection.rebind(&keys).await {
             Ok(()) => {
@@ -204,7 +202,6 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             } => {
                 info!("Event loop ended");
-                debug!("Event loop ended");
             }
             _ = async {
                 while !shutdown_sent.load(Ordering::SeqCst) {
@@ -212,7 +209,6 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             } => {
                 info!("Shutdown requested via Ctrl+C");
-                debug!("Shutdown requested via Ctrl+C");
             }
         }
 
@@ -220,10 +216,7 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
     }
     .await;
 
-    // Disconnect and stop the server
     println!("\nShutting down...");
     client.disconnect(true).await?;
-
-    println!("Done!");
     result
 }

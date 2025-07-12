@@ -1,12 +1,12 @@
 //! Example showing simplified process management using the new ServerProcess abstraction
 
-use hotkey_manager::{ProcessBuilder, ipc::IPCClient, Key};
+use hotkey_manager::{ipc::IPCClient, Key, ProcessBuilder};
 use std::env;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, info};
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 const DEFAULT_SOCKET_PATH: &str = "/tmp/hotkey-manager.sock";
 
@@ -30,7 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create and start the server process
     let mut server = ProcessBuilder::new(env::current_exe()?)
-        .env("RUST_LOG", env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
+        .env(
+            "RUST_LOG",
+            env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+        )
         .start()
         .await?;
 
@@ -47,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
-    use hotkey_manager::{HotkeyManager, ipc::IPCServer};
+    use hotkey_manager::{ipc::IPCServer, HotkeyManager};
     use tao::event::Event;
     use tao::event_loop::{ControlFlow, EventLoop};
 
@@ -82,7 +85,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         match event {
-            Event::NewEvents(_) | Event::MainEventsCleared => {},
+            Event::NewEvents(_) | Event::MainEventsCleared => {}
             _ => {}
         }
     });
@@ -96,7 +99,9 @@ async fn run_client() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set up Ctrl+C handler
     tokio::spawn(async move {
-        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
         shutdown_ctrlc.store(true, Ordering::SeqCst);
     });
 

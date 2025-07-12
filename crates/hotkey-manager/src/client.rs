@@ -1,5 +1,5 @@
-use crate::{Error, Result, ProcessConfig, ServerProcess};
 use crate::ipc::{IPCClient, IPCConnection};
+use crate::{Error, ProcessConfig, Result, ServerProcess};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
@@ -107,7 +107,10 @@ impl ManagedClient {
         }
 
         // Try to connect to existing server first
-        info!("Attempting to connect to existing server at {}", self.config.socket_path);
+        info!(
+            "Attempting to connect to existing server at {}",
+            self.config.socket_path
+        );
         match self.try_connect().await {
             Ok(connection) => {
                 info!("Connected to existing server");
@@ -122,39 +125,79 @@ impl ManagedClient {
         // If we have server config, spawn the server
         if let Some(server_config) = &self.config.server_config {
             info!("No existing server found, spawning new server");
-            
+
             let mut server = ServerProcess::new(server_config.clone());
             server.start().await?;
-            
-            // Wait for server to be ready
-            debug!("Waiting for server to be ready (timeout: {:?})", self.config.server_startup_timeout);
-            sleep(self.config.server_startup_timeout).await;
 
-            // Try to connect with retries
-            match self.try_connect_with_retries().await {
-                Ok(connection) => {
-                    info!("Successfully connected to spawned server");
-                    self.connection = Some(connection);
+            // Try to connect with retries, polling for server readiness
+            debug!(
+                "Polling for server readiness (timeout: {:?})",
+                self.config.server_startup_timeout
+            );
+
+            let start_time = tokio::time::Instant::now();
+            let mut poll_interval = Duration::from_millis(10); // Start with fast polling
+            let connection = loop {
+                match self.try_connect().await {
+                    Ok(conn) => {
+                        let elapsed = start_time.elapsed();
+                        info!("Successfully connected to spawned server in {:?}", elapsed);
+                        break Some(conn);
+                    }
+                    Err(_) => {
+                        // Check if we've exceeded the startup timeout
+                        if start_time.elapsed() >= self.config.server_startup_timeout {
+                            debug!("Server startup timeout reached, trying with retries");
+                            break None;
+                        }
+                        // Server might not be ready yet, wait a bit and try again
+                        sleep(poll_interval).await;
+
+                        // Gradually increase polling interval to reduce CPU usage
+                        // but keep it reasonably fast for quick startup
+                        if poll_interval < Duration::from_millis(100) {
+                            poll_interval = poll_interval.saturating_add(Duration::from_millis(10));
+                        }
+                    }
+                }
+            };
+
+            match connection {
+                Some(conn) => {
+                    self.connection = Some(conn);
                     self.server = Some(server);
                     Ok(())
                 }
-                Err(e) => {
-                    error!("Failed to connect to spawned server: {}", e);
-                    // Stop the server since we can't connect
-                    server.stop().await?;
-                    Err(e)
+                None => {
+                    // If we couldn't connect during startup timeout, try with normal retries
+                    match self.try_connect_with_retries().await {
+                        Ok(conn) => {
+                            info!("Successfully connected to spawned server");
+                            self.connection = Some(conn);
+                            self.server = Some(server);
+                            Ok(())
+                        }
+                        Err(e) => {
+                            error!("Failed to connect to spawned server: {}", e);
+                            // Stop the server since we can't connect
+                            server.stop().await?;
+                            Err(e)
+                        }
+                    }
                 }
             }
         } else {
             // No server config, so we can't spawn a server
-            Err(Error::Ipc("No server running and no server configuration provided".to_string()))
+            Err(Error::Ipc(
+                "No server running and no server configuration provided".to_string(),
+            ))
         }
     }
 
     /// Try to connect to the server once
     async fn try_connect(&self) -> Result<IPCConnection> {
         let client = IPCClient::new(&self.config.socket_path);
-        
+
         match timeout(self.config.connection_timeout, client.connect()).await {
             Ok(Ok(connection)) => Ok(connection),
             Ok(Err(e)) => Err(e),
@@ -170,14 +213,17 @@ impl ManagedClient {
         let mut last_error = None;
 
         for attempt in 1..=self.config.max_connection_attempts {
-            debug!("Connection attempt {}/{}", attempt, self.config.max_connection_attempts);
-            
+            debug!(
+                "Connection attempt {}/{}",
+                attempt, self.config.max_connection_attempts
+            );
+
             match self.try_connect().await {
                 Ok(connection) => return Ok(connection),
                 Err(e) => {
                     warn!("Connection attempt {} failed: {}", attempt, e);
                     last_error = Some(e);
-                    
+
                     if attempt < self.config.max_connection_attempts {
                         sleep(self.config.connection_retry_delay).await;
                     }
@@ -239,7 +285,7 @@ impl Drop for ManagedClient {
             warn!("ManagedClient dropped while still connected");
             // Can't do async in drop, so connection will close when dropped
         }
-        
+
         // ServerProcess has its own drop implementation
         if self.server.is_some() {
             warn!("ManagedClient dropped with running server");

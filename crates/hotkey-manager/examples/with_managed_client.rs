@@ -1,13 +1,13 @@
 //! Example showing the ManagedClient abstraction that handles server lifecycle automatically
 
-use hotkey_manager::{ManagedClientBuilder, Key};
+use hotkey_manager::{Key, ManagedClientBuilder};
 use std::env;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 use tracing::{error, info};
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 const DEFAULT_SOCKET_PATH: &str = "/tmp/hotkey-manager.sock";
 
@@ -44,14 +44,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_ctrlc = shutdown.clone();
     tokio::spawn(async move {
-        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
         println!("\nReceived Ctrl+C, shutting down...");
         shutdown_ctrlc.store(true, Ordering::SeqCst);
     });
 
     // Get the connection and use it
     let connection = client.connection()?;
-    
+
     // Bind hotkeys
     let keys = vec![
         ("quit".to_string(), Key::parse("q").unwrap()),
@@ -103,13 +105,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Disconnect and stop the server if we spawned it
     println!("Disconnecting...");
     client.disconnect(true).await?;
-    
+
     println!("Done!");
     Ok(())
 }
 
 async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
-    use hotkey_manager::{HotkeyManager, ipc::IPCServer};
+    use hotkey_manager::{ipc::IPCServer, HotkeyManager};
     use tao::event::Event;
     use tao::event_loop::{ControlFlow, EventLoop};
 
@@ -144,7 +146,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         match event {
-            Event::NewEvents(_) | Event::MainEventsCleared => {},
+            Event::NewEvents(_) | Event::MainEventsCleared => {}
             _ => {}
         }
     });
