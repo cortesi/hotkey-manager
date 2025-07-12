@@ -17,7 +17,7 @@ mod server;
 // Re-export the main types from modules
 pub use client::Client;
 pub use error::{Error, Result};
-pub use ipc::IPCResponse;
+pub use ipc::{IPCConnection, IPCResponse};
 pub use key::Key;
 pub use process::ServerProcess;
 pub use server::Server;

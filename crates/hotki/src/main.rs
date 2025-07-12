@@ -87,7 +87,7 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
     let path = config_path.expect("Config path is required for client mode");
     info!("Loading mode configuration from: {:?}", path);
     let ron_content = std::fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read config file: {:?}", path))?;
+        .with_context(|| format!("Failed to read config file: {path:?}"))?;
 
     let mode = match Mode::from_ron(&ron_content) {
         Ok(mode) => {
@@ -127,9 +127,11 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
         .connection()
         .context("Failed to get client connection")?;
 
-    // Run main logic
-    let result = async {
-        // Bind keys from the current mode
+    // Helper function to rebind keys for the current mode
+    async fn rebind_for_mode(
+        connection: &mut hotkey_manager::IPCConnection,
+        state: &State,
+    ) -> Result<()> {
         let current_mode = state.mode();
         let keys: Vec<(String, Key)> = current_mode
             .keys()
@@ -151,16 +153,23 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
             .context("Failed to rebind hotkeys")?;
 
         info!("Successfully bound {} hotkeys", keys.len());
+        Ok(())
+    }
+
+    // Run main logic
+    let result = async {
+        // Bind keys from the current mode
         debug!("Starting event listener loop");
 
         tokio::select! {
             _ = async {
                 loop {
+                    rebind_for_mode(connection, &state).await.unwrap();
                     // Print available keys before each event
                     println!("\nCurrent mode (depth: {})", state.depth());
                     println!("Available keys:");
                     for (key, desc) in state.mode().keys() {
-                        println!("  {} - {}", key, desc);
+                        println!("  {key} - {desc}");
                     }
                     println!("\nWaiting for hotkey press...");
 
@@ -168,27 +177,42 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
                         Ok(IPCResponse::HotkeyTriggered { identifier }) => {
                             debug!("Received hotkey event: {}", identifier);
 
-                            // Process the key through the state
-                            if let Some(action) = state.key(&identifier) {
-                                info!("Action triggered: {:?}", action);
+                            // Check if this key is a mode transition BEFORE processing it
+                            let mode_before = state.mode();
+                            let is_mode_key = if let Some((action, _)) = mode_before.get_with_attrs(&identifier) {
+                                matches!(action, Action::Mode(_) | Action::Pop)
+                            } else {
+                                false
+                            };
 
-                                match action {
-                                    Action::Exit => {
-                                        info!("Exit action - shutting down...");
-                                        break;
-                                    }
-                                    Action::Shell(cmd) => {
-                                        println!("Shell command: {}", cmd);
-                                    }
-                                    Action::Mode(_mode) => {
-                                        println!("Mode change (would rebind keys)");
-                                    }
-                                    Action::Pop => {
-                                        println!("Pop to previous mode (would rebind keys)");
+                            // Process the key through the state
+                            match state.key(&identifier) {
+                                Some(action) => {
+                                    info!("Action triggered: {:?}", action);
+
+                                    match action {
+                                        Action::Exit => {
+                                            info!("Exit action - shutting down...");
+                                            break;
+                                        }
+                                        Action::Shell(cmd) => {
+                                            println!("Shell command: {cmd}");
+                                        }
+                                        // These cases should never happen since state.key() returns None for them
+                                        Action::Mode(_) | Action::Pop => {
+                                            unreachable!("Mode/Pop actions should return None from state.key()");
+                                        }
                                     }
                                 }
-                            } else {
-                                debug!("Key '{}' not found in current mode", identifier);
+                                None => {
+                                    // state.key() returns None for Mode/Pop actions and unknown keys
+                                    if is_mode_key {
+                                        // This was a Mode or Pop action
+                                        info!("Mode transition detected - rebinding keys...");
+                                    } else {
+                                        debug!("Key '{}' not found in current mode", identifier);
+                                    }
+                                }
                             }
                         }
                         Ok(response) => {
