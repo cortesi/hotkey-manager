@@ -20,7 +20,7 @@ struct HotkeyEntry {
 
 /// A manager for global hotkeys that handles registration and callback execution.
 pub struct HotkeyManager {
-    manager: Arc<GlobalHotKeyManager>,
+    manager: GlobalHotKeyManager,
     hotkeys: Arc<Mutex<HashMap<u32, HotkeyEntry>>>,
 }
 
@@ -100,7 +100,7 @@ impl HotkeyManager {
         });
 
         let result = Self {
-            manager: Arc::new(manager),
+            manager,
             hotkeys,
         };
         info!("HotkeyManager initialized successfully");
