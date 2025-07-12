@@ -100,43 +100,21 @@ async fn process_hotkey_events(connection: &mut IPCConnection, state: &mut State
     println!("\nWaiting for hotkey press...");
 
     match connection.recv_event().await {
-        Ok(IPCResponse::HotkeyTriggered { identifier }) => {
-            debug!("Received hotkey event: {}", identifier);
-
-            // Check if this key is a mode transition BEFORE processing it
-            let mode_before = state.mode();
-            let is_mode_key = if let Some((action, _)) = mode_before.get_with_attrs(&identifier) {
-                matches!(action, Action::Mode(_) | Action::Pop)
-            } else {
-                false
-            };
-
-            // Process the key through the state
-            match state.key(&identifier) {
-                Some(action) => {
-                    info!("Action triggered: {:?}", action);
-
-                    match action {
-                        Action::Exit => {
-                            info!("Exit action - shutting down...");
-                            return Ok(true); // Signal to exit
-                        }
-                        Action::Shell(cmd) => {
-                            println!("Shell command: {cmd}");
-                        }
-                        // These cases should never happen since state.key() returns None for them
-                        Action::Mode(_) | Action::Pop => {
-                            unreachable!("Mode/Pop actions should return None from state.key()");
-                        }
+        Ok(IPCResponse::HotkeyTriggered(key)) => {
+            debug!("Received hotkey event: {}", key);
+            if let Some(action) = state.key(&key) {
+                info!("Action triggered: {:?}", action);
+                match action {
+                    Action::Exit => {
+                        info!("Exit action - shutting down...");
+                        return Ok(true); // Signal to exit
                     }
-                }
-                None => {
-                    // state.key() returns None for Mode/Pop actions and unknown keys
-                    if is_mode_key {
-                        // This was a Mode or Pop action
-                        info!("Mode transition detected - rebinding keys...");
-                    } else {
-                        debug!("Key '{}' not found in current mode", identifier);
+                    Action::Shell(cmd) => {
+                        println!("Shell command: {cmd}");
+                    }
+                    // These cases should never happen since state.key() returns None for them
+                    Action::Mode(_) | Action::Pop => {
+                        unreachable!("Mode/Pop actions should return None from state.key()");
                     }
                 }
             }

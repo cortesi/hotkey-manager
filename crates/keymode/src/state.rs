@@ -18,7 +18,7 @@ impl State {
     }
 
     /// Process a key press and return the resulting action if any
-    pub fn key(&mut self, key: &str) -> Option<Action> {
+    pub fn key(&mut self, key: &Key) -> Option<Action> {
         // Get the current mode (from stack or root)
         let current_mode = if let Some(mode) = self.mode_stack.last() {
             mode
@@ -76,10 +76,7 @@ impl State {
 
     /// Get all keys from the current mode as Key objects
     pub fn keys(&self) -> Vec<Key> {
-        self.mode()
-            .keys()
-            .filter_map(|(key_str, _desc)| Key::parse(key_str).ok())
-            .collect()
+        self.mode().key_objects().cloned().collect()
     }
 }
 
@@ -87,6 +84,11 @@ impl State {
 mod tests {
     use super::*;
     use crate::mode::Action;
+
+    // Helper function to create a Key from a string for tests
+    fn key(s: &str) -> Key {
+        Key::parse(s).unwrap()
+    }
 
     #[test]
     fn test_state_navigation() {
@@ -108,34 +110,34 @@ mod tests {
 
         // Test root mode
         assert_eq!(state.depth(), 0);
-        assert!(matches!(state.key("q"), Some(Action::Exit)));
+        assert!(matches!(state.key(&key("q")), Some(Action::Exit)));
         assert_eq!(state.depth(), 0); // Should reset to root after action
-        assert!(matches!(state.key("h"), Some(Action::Shell(cmd)) if cmd == "echo hello"));
+        assert!(matches!(state.key(&key("h")), Some(Action::Shell(cmd)) if cmd == "echo hello"));
         assert_eq!(state.depth(), 0); // Should reset to root after action
 
         // Enter mode2
-        assert!(state.key("2").is_none());
+        assert!(state.key(&key("2")).is_none());
         assert_eq!(state.depth(), 1);
 
         // Test mode2 - actions should reset to root
-        assert!(matches!(state.key("s"), Some(Action::Shell(cmd)) if cmd == "ls"));
+        assert!(matches!(state.key(&key("s")), Some(Action::Shell(cmd)) if cmd == "ls"));
         assert_eq!(state.depth(), 0); // Should reset to root after action
 
         // Go back to mode2 to test Exit
-        state.key("2");
-        assert!(matches!(state.key("e"), Some(Action::Exit)));
+        state.key(&key("2"));
+        assert!(matches!(state.key(&key("e")), Some(Action::Exit)));
         assert_eq!(state.depth(), 0); // Should reset to root after action
 
         // Test pop from nested mode
-        state.key("2");
-        assert!(state.key("p").is_none());
+        state.key(&key("2"));
+        assert!(state.key(&key("p")).is_none());
         assert_eq!(state.depth(), 0);
 
         // Test we're back in root
-        assert!(matches!(state.key("q"), Some(Action::Exit)));
+        assert!(matches!(state.key(&key("q")), Some(Action::Exit)));
 
         // Test pop from root returns Exit
-        assert!(matches!(state.key("p"), Some(Action::Exit)));
+        assert!(matches!(state.key(&key("p")), Some(Action::Exit)));
     }
 
     #[test]
@@ -152,7 +154,7 @@ mod tests {
         let mut state = State::new(root);
 
         // Go into nested mode
-        state.key("n");
+        state.key(&key("n"));
         assert_eq!(state.depth(), 1);
 
         // Reset
@@ -172,8 +174,8 @@ mod tests {
         let mut state = State::new(root);
 
         // Unknown key returns None
-        assert!(state.key("z").is_none());
-        assert!(state.key("unknown").is_none());
+        assert!(state.key(&key("z")).is_none());
+        assert!(state.key(&key("x")).is_none());
     }
 
     #[test]
@@ -194,36 +196,38 @@ mod tests {
         let mut state = State::new(root);
 
         // Enter menu
-        assert!(state.key("m").is_none());
+        assert!(state.key(&key("m")).is_none());
         assert_eq!(state.depth(), 1);
 
         // Normal action should reset to root
-        assert!(matches!(state.key("n"), Some(Action::Shell(cmd)) if cmd == "echo normal"));
+        assert!(matches!(state.key(&key("n")), Some(Action::Shell(cmd)) if cmd == "echo normal"));
         assert_eq!(state.depth(), 0); // Should be at root after normal action
 
         // Go back to menu
-        assert!(state.key("m").is_none());
+        assert!(state.key(&key("m")).is_none());
         assert_eq!(state.depth(), 1);
 
         // Sticky action should NOT reset
-        assert!(matches!(state.key("s"), Some(Action::Shell(cmd)) if cmd == "echo sticky"));
+        assert!(matches!(state.key(&key("s")), Some(Action::Shell(cmd)) if cmd == "echo sticky"));
         assert_eq!(state.depth(), 1); // Should still be in menu
 
         // Go deeper
-        assert!(state.key("d").is_none());
+        assert!(state.key(&key("d")).is_none());
         assert_eq!(state.depth(), 2);
 
         // Normal action in deep menu should reset to root
-        assert!(matches!(state.key("x"), Some(Action::Shell(cmd)) if cmd == "echo deep"));
+        assert!(matches!(state.key(&key("x")), Some(Action::Shell(cmd)) if cmd == "echo deep"));
         assert_eq!(state.depth(), 0); // Should be back at root
 
         // Test sticky in deep menu
-        state.key("m"); // Enter menu
-        state.key("d"); // Enter deep
+        state.key(&key("m")); // Enter menu
+        state.key(&key("d")); // Enter deep
         assert_eq!(state.depth(), 2);
 
         // Sticky action in deep menu should NOT reset
-        assert!(matches!(state.key("y"), Some(Action::Shell(cmd)) if cmd == "echo sticky deep"));
+        assert!(
+            matches!(state.key(&key("y")), Some(Action::Shell(cmd)) if cmd == "echo sticky deep")
+        );
         assert_eq!(state.depth(), 2); // Should still be in deep menu
     }
 }

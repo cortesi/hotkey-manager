@@ -32,7 +32,7 @@ impl Action {
 /// A collection of key bindings with their associated actions and descriptions
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Mode {
-    keys: Vec<(String, String, Action, Attrs)>,
+    keys: Vec<(Key, String, Action, Attrs)>,
 }
 
 // Manual Serialize implementation that respects transparent
@@ -41,7 +41,17 @@ impl Serialize for Mode {
     where
         S: serde::Serializer,
     {
-        self.keys.serialize(serializer)
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(self.keys.len()))?;
+        for (key, desc, action, attrs) in &self.keys {
+            // Serialize as a tuple with key converted to string
+            if attrs == &Attrs::default() {
+                seq.serialize_element(&(key.to_string(), desc, action))?;
+            } else {
+                seq.serialize_element(&(key.to_string(), desc, action, attrs))?;
+            }
+        }
+        seq.end()
     }
 }
 
@@ -59,13 +69,24 @@ impl<'de> Deserialize<'de> for Mode {
         }
 
         let entries = Vec::<Entry>::deserialize(deserializer)?;
-        let keys = entries
-            .into_iter()
-            .map(|entry| match entry {
-                Entry::Simple(k, n, a) => (k, n, a, Attrs::default()),
-                Entry::WithAttrs(k, n, a, attrs) => (k, n, a, attrs),
-            })
-            .collect();
+        let mut keys = Vec::new();
+
+        for entry in entries {
+            match entry {
+                Entry::Simple(k, n, a) => match Key::parse(&k) {
+                    Ok(key) => keys.push((key, n, a, Attrs::default())),
+                    Err(e) => {
+                        return Err(serde::de::Error::custom(format!("Invalid key '{k}': {e}")));
+                    }
+                },
+                Entry::WithAttrs(k, n, a, attrs) => match Key::parse(&k) {
+                    Ok(key) => keys.push((key, n, a, attrs)),
+                    Err(e) => {
+                        return Err(serde::de::Error::custom(format!("Invalid key '{k}': {e}")));
+                    }
+                },
+            }
+        }
 
         Ok(Mode { keys })
     }
@@ -78,7 +99,7 @@ impl Mode {
     }
 
     /// Get the action and attributes associated with a key
-    pub fn get_with_attrs(&self, key: &str) -> Option<(&Action, &Attrs)> {
+    pub fn get_with_attrs(&self, key: &Key) -> Option<(&Action, &Attrs)> {
         self.keys
             .iter()
             .find(|(k, _, _, _)| k == key)
@@ -87,33 +108,27 @@ impl Mode {
 
     /// Get all keys in this mode
     ///
-    /// Returns an iterator over tuples of (key, description)
-    pub fn keys(&self) -> impl Iterator<Item = (&str, &str)> {
+    /// Returns an iterator over tuples of (key_string, description)
+    pub fn keys(&self) -> impl Iterator<Item = (String, &str)> + '_ {
         self.keys
             .iter()
-            .map(|(k, desc, _, _)| (k.as_str(), desc.as_str()))
+            .map(|(k, desc, _, _)| (k.to_string(), desc.as_str()))
     }
 
-    /// Validate all key bindings in this mode and nested modes
-    pub fn validate(&self) -> Result<(), String> {
-        for (key, name, action, _) in &self.keys {
-            // Try to parse the key with hotkey_manager
-            if let Err(e) = Key::parse(key) {
-                return Err(format!("Invalid key '{key}' ({name}): {e}"));
-            }
-
-            // Recursively validate nested modes
-            if let Action::Mode(nested_mode) = action {
-                nested_mode.validate()?;
-            }
-        }
-        Ok(())
+    /// Get all Key objects in this mode
+    pub fn key_objects(&self) -> impl Iterator<Item = &Key> + '_ {
+        self.keys.iter().map(|(k, _, _, _)| k)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Helper function to create a Key from a string for tests
+    fn key(s: &str) -> Key {
+        Key::parse(s).unwrap()
+    }
 
     #[test]
     fn test_mode() {
@@ -125,11 +140,14 @@ mod tests {
         )
         .unwrap();
 
-        assert!(matches!(mode.get_with_attrs("q"), Some((Action::Exit, _))));
+        assert!(matches!(
+            mode.get_with_attrs(&key("q")),
+            Some((Action::Exit, _))
+        ));
         assert!(
-            matches!(mode.get_with_attrs("s"), Some((Action::Shell(cmd), _)) if cmd == "echo hello")
+            matches!(mode.get_with_attrs(&key("s")), Some((Action::Shell(cmd), _)) if cmd == "echo hello")
         );
-        assert_eq!(mode.get_with_attrs("x"), None);
+        assert_eq!(mode.get_with_attrs(&key("x")), None);
     }
 
     #[test]
@@ -144,14 +162,20 @@ mod tests {
 
         let mode = Mode::from_ron(ron_str).unwrap();
 
-        assert!(matches!(mode.get_with_attrs("q"), Some((Action::Exit, _))));
+        assert!(matches!(
+            mode.get_with_attrs(&key("q")),
+            Some((Action::Exit, _))
+        ));
         assert!(
-            matches!(mode.get_with_attrs("s"), Some((Action::Shell(cmd), _)) if cmd == "echo hello")
+            matches!(mode.get_with_attrs(&key("s")), Some((Action::Shell(cmd), _)) if cmd == "echo hello")
         );
 
         // Test nested mode
-        if let Some((Action::Mode(nested), _)) = mode.get_with_attrs("m") {
-            assert!(matches!(nested.get_with_attrs("x"), Some((Action::Pop, _))));
+        if let Some((Action::Mode(nested), _)) = mode.get_with_attrs(&key("m")) {
+            assert!(matches!(
+                nested.get_with_attrs(&key("x")),
+                Some((Action::Pop, _))
+            ));
         } else {
             panic!("Expected nested mode");
         }
@@ -181,13 +205,13 @@ mod tests {
         let main_mode = Mode::from_ron(ron_text).unwrap();
 
         assert!(matches!(
-            main_mode.get_with_attrs("q"),
+            main_mode.get_with_attrs(&key("q")),
             Some((Action::Exit, _))
         ));
 
-        if let Some((Action::Mode(nested), _)) = main_mode.get_with_attrs("m") {
+        if let Some((Action::Mode(nested), _)) = main_mode.get_with_attrs(&key("m")) {
             assert!(
-                matches!(nested.get_with_attrs("x"), Some((Action::Shell(cmd), _)) if cmd == "exit")
+                matches!(nested.get_with_attrs(&key("x")), Some((Action::Shell(cmd), _)) if cmd == "exit")
             );
         } else {
             panic!("Expected nested mode");
@@ -217,11 +241,11 @@ mod tests {
         // Verify they are equal
         assert_eq!(mode, deserialized);
         assert!(matches!(
-            deserialized.get_with_attrs("q"),
+            deserialized.get_with_attrs(&key("q")),
             Some((Action::Exit, _))
         ));
         assert!(
-            matches!(deserialized.get_with_attrs("s"), Some((Action::Shell(cmd), _)) if cmd == "echo hello")
+            matches!(deserialized.get_with_attrs(&key("s")), Some((Action::Shell(cmd), _)) if cmd == "echo hello")
         );
     }
 
@@ -253,106 +277,86 @@ mod tests {
         let commit_mode = Mode {
             keys: vec![
                 (
-                    "m".to_string(),
+                    key("m"),
                     "Message".to_string(),
                     Action::shell("git commit -m 'Quick commit'"),
                     Attrs::default(),
                 ),
                 (
-                    "a".to_string(),
+                    key("a"),
                     "Amend".to_string(),
                     Action::shell("git commit --amend"),
                     Attrs::default(),
                 ),
-                (
-                    "p".to_string(),
-                    "Back".to_string(),
-                    Action::Pop,
-                    Attrs::default(),
-                ),
+                (key("p"), "Back".to_string(), Action::Pop, Attrs::default()),
             ],
         };
 
         let git_mode = Mode {
             keys: vec![
                 (
-                    "s".to_string(),
+                    key("s"),
                     "Status".to_string(),
                     Action::shell("git status"),
                     Attrs::default(),
                 ),
                 (
-                    "l".to_string(),
+                    key("l"),
                     "Log".to_string(),
                     Action::shell("git log"),
                     Attrs { noexit: true },
                 ),
                 (
-                    "p".to_string(),
+                    key("p"),
                     "Pull".to_string(),
                     Action::shell("git pull"),
                     Attrs::default(),
                 ),
                 (
-                    "c".to_string(),
+                    key("c"),
                     "Commit".to_string(),
                     Action::Mode(commit_mode),
                     Attrs::default(),
                 ),
-                (
-                    "q".to_string(),
-                    "Back".to_string(),
-                    Action::Pop,
-                    Attrs::default(),
-                ),
+                (key("q"), "Back".to_string(), Action::Pop, Attrs::default()),
             ],
         };
 
         let files_mode = Mode {
             keys: vec![
                 (
-                    "l".to_string(),
+                    key("l"),
                     "List".to_string(),
                     Action::shell("ls -la"),
                     Attrs::default(),
                 ),
                 (
-                    "t".to_string(),
+                    key("t"),
                     "Tree".to_string(),
                     Action::shell("tree"),
                     Attrs { noexit: true },
                 ),
-                (
-                    "q".to_string(),
-                    "Back".to_string(),
-                    Action::Pop,
-                    Attrs::default(),
-                ),
+                (key("q"), "Back".to_string(), Action::Pop, Attrs::default()),
             ],
         };
 
         let expected = Mode {
             keys: vec![
+                (key("q"), "Exit".to_string(), Action::Exit, Attrs::default()),
                 (
-                    "q".to_string(),
-                    "Exit".to_string(),
-                    Action::Exit,
-                    Attrs::default(),
-                ),
-                (
-                    "h".to_string(),
+                    key("h"),
                     "Hello".to_string(),
                     Action::shell("echo 'Hello World'"),
                     Attrs::default(),
                 ),
                 (
-                    "g".to_string(),
+                    key("g"),
                     "Git".to_string(),
                     Action::Mode(git_mode),
                     Attrs::default(),
                 ),
                 (
-                    "f".to_string(),
+                    key("f"),
                     "Files".to_string(),
                     Action::Mode(files_mode),
                     Attrs::default(),
@@ -368,82 +372,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_valid_keys() {
-        // Simple valid keys
-        let mode = Mode::from_ron(
-            r#"[
-            ("ctrl+a", "Select All", shell("select all")),
-            ("cmd+c", "Copy", shell("copy")),
-            ("shift+f1", "Help", shell("help")),
-        ]"#,
-        )
-        .unwrap();
-        assert!(mode.validate().is_ok());
-
-        // Nested modes with valid keys
-        let main_mode = Mode::from_ron(
-            r#"[
-            ("cmd+f", "File", mode([
-                ("ctrl+s", "Save", shell("save")),
-                ("ctrl+shift+s", "Save As", shell("save as")),
-            ])),
-            ("escape", "Exit", exit),
-        ]"#,
-        )
-        .unwrap();
-        assert!(main_mode.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_invalid_keys() {
-        // Invalid key at root level
-        let mode = Mode::from_ron(
-            r#"[
-            ("ctrl+a", "Valid", shell("valid")),
-            ("invalid key", "Invalid", shell("invalid")),
-        ]"#,
-        )
-        .unwrap();
-        let err = mode.validate().unwrap_err();
-        assert!(err.contains("Invalid key 'invalid key' (Invalid)"));
-
-        // Invalid key in nested mode
-        let main_mode = Mode::from_ron(
-            r#"[
-            ("cmd+f", "File", mode([
-                ("ctrl+s", "Save", shell("save")),
-                ("bad+key", "Bad", shell("bad")),
-            ])),
-            ("escape", "Exit", exit),
-        ]"#,
-        )
-        .unwrap();
-        let err = main_mode.validate().unwrap_err();
-        assert!(err.contains("Invalid key 'bad+key' (Bad)"));
-        // The error occurs because "key" is not a valid key code
-        assert!(err.contains("Unknown key code: key"));
-    }
-
-    #[test]
-    fn test_validate_deeply_nested() {
-        // Create a deeply nested mode structure
-        let level1 = Mode::from_ron(
-            r#"[
-            ("ctrl+1", "Level 1", mode([
-                ("ctrl+2", "Level 2", mode([
-                    ("ctrl+3", "Level 3", shell("level3")),
-                    ("invalid", "Invalid", shell("invalid")),
-                ])),
-            ])),
-        ]"#,
-        )
-        .unwrap();
-
-        let err = level1.validate().unwrap_err();
-        assert!(err.contains("Invalid key 'invalid' (Invalid)"));
-    }
-
-    #[test]
     fn test_attrs_deserialization() {
         // Test that attrs deserialize correctly
         let ron_text = r#"[
@@ -455,17 +383,17 @@ mod tests {
         let mode = Mode::from_ron(ron_text).unwrap();
 
         // Check action a has default attrs
-        let (action_a, attrs_a) = mode.get_with_attrs("a").unwrap();
+        let (action_a, attrs_a) = mode.get_with_attrs(&key("a")).unwrap();
         assert!(matches!(action_a, Action::Shell(cmd) if cmd == "echo a"));
         assert!(!attrs_a.noexit);
 
         // Check action b has noexit: true
-        let (action_b, attrs_b) = mode.get_with_attrs("b").unwrap();
+        let (action_b, attrs_b) = mode.get_with_attrs(&key("b")).unwrap();
         assert!(matches!(action_b, Action::Shell(cmd) if cmd == "echo b"));
         assert!(attrs_b.noexit);
 
         // Check action c has noexit: false
-        let (action_c, attrs_c) = mode.get_with_attrs("c").unwrap();
+        let (action_c, attrs_c) = mode.get_with_attrs(&key("c")).unwrap();
         assert!(matches!(action_c, Action::Shell(cmd) if cmd == "echo c"));
         assert!(!attrs_c.noexit);
     }

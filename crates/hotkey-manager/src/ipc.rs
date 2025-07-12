@@ -68,8 +68,7 @@ pub enum IPCResponse {
     /// Error response indicating the request failed.
     Error { message: String },
     /// Asynchronous event sent when a hotkey is triggered.
-    /// Contains the identifier that was provided when the hotkey was registered.
-    HotkeyTriggered { identifier: String },
+    HotkeyTriggered(Key),
 }
 
 /// IPC server that manages hotkey operations for a single client.
@@ -255,15 +254,20 @@ async fn handle_request(
                 };
             }
 
-            // Use the existing event sender for creating callbacks
-            debug!("Creating event forwarder with existing event sender");
-            let callback = create_event_forwarder(event_sender.clone());
-
-            // Convert keys to (identifier, key) pairs using the key's string representation
+            // Create a mapping from identifier to Key
+            let mut key_map = std::collections::HashMap::new();
             let key_pairs: Vec<(String, Key)> = keys
                 .iter()
-                .map(|key| (key.to_string(), key.clone()))
+                .map(|key| {
+                    let identifier = key.to_string();
+                    key_map.insert(identifier.clone(), key.clone());
+                    (identifier, key.clone())
+                })
                 .collect();
+
+            // Use the existing event sender for creating callbacks
+            debug!("Creating event forwarder with existing event sender");
+            let callback = create_event_forwarder_with_key_map(event_sender.clone(), key_map);
 
             // Bind all the new hotkeys
             debug!("Binding {} new hotkeys", keys.len());
@@ -418,9 +422,11 @@ impl IPCConnection {
 /// Use this with the event_sender from an IPCServer to bridge hotkey
 /// events to the IPC client. The callback is thread-safe and can be cloned
 /// for multiple hotkeys.
-pub(crate) fn create_event_forwarder(
+pub(crate) fn create_event_forwarder_with_key_map(
     event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
+    key_map: std::collections::HashMap<String, Key>,
 ) -> impl Fn(&str) + Send + Sync + Clone + 'static {
+    let key_map = Arc::new(key_map);
     move |identifier| {
         trace!("Event forwarder called for identifier: '{}'", identifier);
         if let Some(sender) = event_sender
@@ -428,15 +434,14 @@ pub(crate) fn create_event_forwarder(
             .expect("event_sender mutex poisoned")
             .as_ref()
         {
-            debug!(
-                "Sending HotkeyTriggered event for identifier: '{}'",
-                identifier
-            );
-            match sender.send(IPCResponse::HotkeyTriggered {
-                identifier: identifier.to_string(),
-            }) {
-                Ok(_) => trace!("HotkeyTriggered event sent successfully"),
-                Err(e) => error!("Failed to send HotkeyTriggered event: {:?}", e),
+            if let Some(key) = key_map.get(identifier) {
+                debug!("Sending HotkeyTriggered event for key: '{}'", key);
+                match sender.send(IPCResponse::HotkeyTriggered(key.clone())) {
+                    Ok(_) => trace!("HotkeyTriggered event sent successfully"),
+                    Err(e) => error!("Failed to send HotkeyTriggered event: {:?}", e),
+                }
+            } else {
+                error!("No key found in map for identifier: '{}'", identifier);
             }
         } else {
             warn!(
