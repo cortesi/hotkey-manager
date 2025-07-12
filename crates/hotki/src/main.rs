@@ -12,10 +12,7 @@ use tokio::{signal, time::sleep};
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use hotkey_manager::{Key, ManagedClientBuilder, ipc::IPCResponse, run_server_on};
-
-/// Default socket path for IPC communication
-const DEFAULT_SOCKET_PATH: &str = "/tmp/hotkey-manager.sock";
+use hotkey_manager::{Client, DEFAULT_SOCKET_PATH, Key, ipc::IPCResponse, run_server_on};
 
 /// Delay to wait for server startup
 const SERVER_STARTUP_DELAY_MS: u64 = 500;
@@ -72,18 +69,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args.server {
         info!("Starting hotki in server mode");
-        run_server()
+        run_server_on(DEFAULT_SOCKET_PATH)?;
+        Ok(())
     } else {
         info!("Starting hotki in client mode");
         run_client()
     }
-}
-
-/// Run the hotkey manager server
-fn run_server() -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting hotki in server mode");
-    run_server_on(DEFAULT_SOCKET_PATH)?;
-    Ok(())
 }
 
 /// Run the client and spawn the server process
@@ -95,12 +86,10 @@ fn run_client() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown_sent = Arc::new(AtomicBool::new(false));
-
-    // Create and connect using ManagedClient
-    info!("Starting client with managed server");
-    let mut client = ManagedClientBuilder::new(DEFAULT_SOCKET_PATH)
+    info!("Starting client");
+    let mut client = Client::new()
         .with_server_executable(env::current_exe()?)
-        .server_startup_timeout(Duration::from_millis(SERVER_STARTUP_DELAY_MS))
+        .with_server_startup_timeout(Duration::from_millis(SERVER_STARTUP_DELAY_MS))
         .connect()
         .await?;
 

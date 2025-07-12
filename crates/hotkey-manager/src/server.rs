@@ -1,5 +1,5 @@
 use crate::ipc::IPCServer;
-use crate::{Error, HotkeyManager, Result};
+use crate::{Error, HotkeyManager, Result, DEFAULT_SOCKET_PATH};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -17,7 +17,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            socket_path: "/tmp/hotkey-manager.sock".to_string(),
+            socket_path: DEFAULT_SOCKET_PATH.to_string(),
         }
     }
 }
@@ -184,6 +184,6 @@ mod tests {
     #[test]
     fn test_server_config_default() {
         let config = ServerConfig::default();
-        assert_eq!(config.socket_path, "/tmp/hotkey-manager.sock");
+        assert_eq!(config.socket_path, DEFAULT_SOCKET_PATH);
     }
 }

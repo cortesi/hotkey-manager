@@ -1,5 +1,5 @@
 use crate::ipc::{IPCClient, IPCConnection};
-use crate::{Error, ProcessConfig, Result, ServerProcess};
+use crate::{Error, ProcessConfig, Result, ServerProcess, DEFAULT_SOCKET_PATH};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
@@ -25,7 +25,7 @@ pub struct ManagedClientConfig {
 impl Default for ManagedClientConfig {
     fn default() -> Self {
         Self {
-            socket_path: "/tmp/hotkey-manager.sock".to_string(),
+            socket_path: DEFAULT_SOCKET_PATH.to_string(),
             server_config: None,
             server_startup_timeout: Duration::from_millis(1000),
             connection_timeout: Duration::from_secs(5),
@@ -82,28 +82,85 @@ impl ManagedClientConfig {
 }
 
 /// A managed client that can automatically spawn and connect to a server
-pub struct ManagedClient {
+pub struct Client {
     config: ManagedClientConfig,
     server: Option<ServerProcess>,
     connection: Option<IPCConnection>,
 }
 
-impl ManagedClient {
-    /// Create a new managed client with the given configuration
-    pub fn new(config: ManagedClientConfig) -> Self {
+impl Default for Client {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Client {
+    /// Create a new managed client with default configuration
+    pub fn new() -> Self {
         Self {
-            config,
+            config: ManagedClientConfig::default(),
             server: None,
             connection: None,
         }
     }
 
+    /// Create a new managed client with the given socket path
+    pub fn new_with_socket(socket_path: impl Into<String>) -> Self {
+        Self {
+            config: ManagedClientConfig::new(socket_path),
+            server: None,
+            connection: None,
+        }
+    }
+
+    /// Set the socket path
+    pub fn with_socket_path(mut self, socket_path: impl Into<String>) -> Self {
+        self.config.socket_path = socket_path.into();
+        self
+    }
+
+    /// Set the server configuration for automatic spawning
+    pub fn with_server(mut self, config: ProcessConfig) -> Self {
+        self.config.server_config = Some(config);
+        self
+    }
+
+    /// Set the server executable for automatic spawning (convenience method)
+    pub fn with_server_executable(mut self, executable: impl Into<PathBuf>) -> Self {
+        self.config.server_config = Some(ProcessConfig::new(executable));
+        self
+    }
+
+    /// Set the server startup timeout
+    pub fn with_server_startup_timeout(mut self, timeout: Duration) -> Self {
+        self.config.server_startup_timeout = timeout;
+        self
+    }
+
+    /// Set the connection timeout
+    pub fn with_connection_timeout(mut self, timeout: Duration) -> Self {
+        self.config.connection_timeout = timeout;
+        self
+    }
+
+    /// Set the maximum number of connection attempts
+    pub fn with_max_connection_attempts(mut self, attempts: u32) -> Self {
+        self.config.max_connection_attempts = attempts;
+        self
+    }
+
+    /// Set the delay between connection retry attempts
+    pub fn with_connection_retry_delay(mut self, delay: Duration) -> Self {
+        self.config.connection_retry_delay = delay;
+        self
+    }
+
     /// Connect to the server, optionally spawning it first
-    pub async fn connect(&mut self) -> Result<()> {
+    pub async fn connect(mut self) -> Result<Self> {
         // Check if we're already connected
         if self.connection.is_some() {
             debug!("Already connected to server");
-            return Ok(());
+            return Ok(self);
         }
 
         // Try to connect to existing server first
@@ -115,7 +172,7 @@ impl ManagedClient {
             Ok(connection) => {
                 info!("Connected to existing server");
                 self.connection = Some(connection);
-                return Ok(());
+                return Ok(self);
             }
             Err(e) => {
                 debug!("Failed to connect to existing server: {}", e);
@@ -166,7 +223,7 @@ impl ManagedClient {
                 Some(conn) => {
                     self.connection = Some(conn);
                     self.server = Some(server);
-                    Ok(())
+                    Ok(self)
                 }
                 None => {
                     // If we couldn't connect during startup timeout, try with normal retries
@@ -175,7 +232,7 @@ impl ManagedClient {
                             info!("Successfully connected to spawned server");
                             self.connection = Some(conn);
                             self.server = Some(server);
-                            Ok(())
+                            Ok(self)
                         }
                         Err(e) => {
                             error!("Failed to connect to spawned server: {}", e);
@@ -278,7 +335,7 @@ impl ManagedClient {
     }
 }
 
-impl Drop for ManagedClient {
+impl Drop for Client {
     fn drop(&mut self) {
         // Clean disconnect on drop
         if self.is_connected() {
@@ -290,69 +347,6 @@ impl Drop for ManagedClient {
         if self.server.is_some() {
             warn!("ManagedClient dropped with running server");
         }
-    }
-}
-
-/// Builder for creating a ManagedClient with fluent API
-#[derive(Default)]
-pub struct ManagedClientBuilder {
-    config: ManagedClientConfig,
-}
-
-impl ManagedClientBuilder {
-    /// Create a new builder with the given socket path
-    pub fn new(socket_path: impl Into<String>) -> Self {
-        Self {
-            config: ManagedClientConfig::new(socket_path),
-        }
-    }
-
-    /// Set the server configuration
-    pub fn with_server(mut self, config: ProcessConfig) -> Self {
-        self.config = self.config.with_server(config);
-        self
-    }
-
-    /// Set the server executable (convenience method)
-    pub fn with_server_executable(mut self, executable: impl Into<PathBuf>) -> Self {
-        self.config = self.config.with_server_executable(executable);
-        self
-    }
-
-    /// Set the server startup timeout
-    pub fn server_startup_timeout(mut self, timeout: Duration) -> Self {
-        self.config = self.config.server_startup_timeout(timeout);
-        self
-    }
-
-    /// Set the connection timeout
-    pub fn connection_timeout(mut self, timeout: Duration) -> Self {
-        self.config = self.config.connection_timeout(timeout);
-        self
-    }
-
-    /// Set the maximum connection attempts
-    pub fn max_connection_attempts(mut self, attempts: u32) -> Self {
-        self.config = self.config.max_connection_attempts(attempts);
-        self
-    }
-
-    /// Set the connection retry delay
-    pub fn connection_retry_delay(mut self, delay: Duration) -> Self {
-        self.config = self.config.connection_retry_delay(delay);
-        self
-    }
-
-    /// Build the ManagedClient
-    pub fn build(self) -> ManagedClient {
-        ManagedClient::new(self.config)
-    }
-
-    /// Build and connect the ManagedClient
-    pub async fn connect(self) -> Result<ManagedClient> {
-        let mut client = self.build();
-        client.connect().await?;
-        Ok(client)
     }
 }
 
@@ -377,11 +371,15 @@ mod tests {
 
     #[test]
     fn test_client_builder() {
-        let client = ManagedClientBuilder::new("/test/socket.sock")
-            .max_connection_attempts(10)
-            .build();
+        let client = Client::new_with_socket("/test/socket.sock").with_max_connection_attempts(10);
 
         assert_eq!(client.config.socket_path, "/test/socket.sock");
         assert_eq!(client.config.max_connection_attempts, 10);
+    }
+
+    #[test]
+    fn test_client_default_socket_path() {
+        let client = Client::new();
+        assert_eq!(client.config.socket_path, DEFAULT_SOCKET_PATH);
     }
 }

@@ -171,15 +171,6 @@ impl HotkeyManager {
     /// Binds a new hotkey from a string representation.
     ///
     /// This is a convenience method that parses the key string before binding.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use hotkey_manager::HotkeyManager;
-    ///
-    /// let manager = HotkeyManager::new().unwrap();
-    /// manager.bind_from_str("copy", "ctrl+c", |_| println!("Copy!")).unwrap();
-    /// ```
     pub fn bind_from_str<F>(
         &self,
         identifier: impl Into<String>,
@@ -239,7 +230,6 @@ impl HotkeyManager {
         Ok(())
     }
 
-
     /// Convenience method to bind multiple hotkeys with a single callback that receives the identifier.
     ///
     /// # Arguments
@@ -250,21 +240,6 @@ impl HotkeyManager {
     /// # Returns
     ///
     /// Returns a vector of results, one for each hotkey binding attempt.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use hotkey_manager::{HotkeyManager, Key};
-    ///
-    /// let manager = HotkeyManager::new().unwrap();
-    /// let results = manager.bind_multiple(
-    ///     &[
-    ///         ("copy", Key::parse("ctrl+c").unwrap()),
-    ///         ("paste", Key::parse("ctrl+v").unwrap()),
-    ///     ],
-    ///     |id| println!("Hotkey pressed: {}", id)
-    /// );
-    /// ```
     pub fn bind_multiple<F, K>(
         &self,
         hotkeys: &[(impl Into<String> + Clone, K)],
