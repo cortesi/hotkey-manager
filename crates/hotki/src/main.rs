@@ -37,37 +37,39 @@ struct Args {
     server: bool,
 
     /// Set the log level
-    #[arg(short, long, value_enum, default_value = "info")]
-    log_level: LogLevel,
+    #[arg(short, long, value_enum)]
+    log_level: Option<LogLevel>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Configure log level based on CLI argument
-    let log_level = match args.log_level {
-        LogLevel::Error => "error",
-        LogLevel::Warn => "warn",
-        LogLevel::Info => "info",
-        LogLevel::Debug => "debug",
-        LogLevel::Trace => "trace",
-    };
+    // Only initialize tracing if RUST_LOG is set or log level is explicitly provided
+    if std::env::var("RUST_LOG").is_ok() || args.log_level.is_some() {
+        let log_level = match args.log_level.unwrap_or(LogLevel::Info) {
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        };
 
-    // Initialize tracing with custom format (no timestamps)
-    tracing_subscriber::registry()
-        .with(
-            fmt::layer()
-                .without_time()
-                .with_target(false)
-                .with_thread_ids(false)
-                .with_thread_names(false),
-        )
-        .with(
-            EnvFilter::from_default_env()
-                .add_directive(format!("hotkey_manager={log_level}").parse()?)
-                .add_directive(format!("hotki={log_level}").parse()?),
-        )
-        .init();
+        // Initialize tracing with custom format (no timestamps)
+        tracing_subscriber::registry()
+            .with(
+                fmt::layer()
+                    .without_time()
+                    .with_target(false)
+                    .with_thread_ids(false)
+                    .with_thread_names(false),
+            )
+            .with(
+                EnvFilter::from_default_env()
+                    .add_directive(format!("hotkey_manager={log_level}").parse()?)
+                    .add_directive(format!("hotki={log_level}").parse()?),
+            )
+            .init();
+    }
 
     if args.server {
         info!("Starting hotki server");
