@@ -48,8 +48,8 @@ pub enum IPCRequest {
     /// This will first unbind all existing hotkeys, then bind the new ones.
     /// The operation is atomic - if any binding fails, all are rolled back.
     Rebind {
-        /// Vector of (identifier, key) pairs to bind
-        keys: Vec<(String, Key)>,
+        /// Vector of keys to bind
+        keys: Vec<Key>,
     },
 }
 
@@ -259,9 +259,15 @@ async fn handle_request(
             debug!("Creating event forwarder with existing event sender");
             let callback = create_event_forwarder(event_sender.clone());
 
+            // Convert keys to (identifier, key) pairs using the key's string representation
+            let key_pairs: Vec<(String, Key)> = keys
+                .iter()
+                .map(|key| (key.to_string(), key.clone()))
+                .collect();
+
             // Bind all the new hotkeys
             debug!("Binding {} new hotkeys", keys.len());
-            let results = manager.bind_multiple(&keys, callback);
+            let results = manager.bind_multiple(&key_pairs, callback);
 
             // Check if any bindings failed
             let mut failed_bindings = Vec::new();
@@ -270,7 +276,7 @@ async fn handle_request(
             for (idx, result) in results.iter().enumerate() {
                 match result {
                     Ok(_) => successful_count += 1,
-                    Err(e) => failed_bindings.push((keys[idx].0.clone(), e.to_string())),
+                    Err(e) => failed_bindings.push((key_pairs[idx].0.clone(), e.to_string())),
                 }
             }
 
@@ -375,8 +381,8 @@ impl IPCConnection {
     /// Rebind all hotkeys, replacing the current configuration.
     ///
     /// This operation is atomic - if any binding fails, all existing hotkeys
-    /// are restored. The keys parameter should contain (identifier, key) pairs.
-    pub async fn rebind(&mut self, keys: &[(String, Key)]) -> Result<()> {
+    /// are restored.
+    pub async fn rebind(&mut self, keys: &[Key]) -> Result<()> {
         self.send_request(&IPCRequest::Rebind {
             keys: keys.to_vec(),
         })

@@ -1,4 +1,5 @@
 use crate::mode::{Action, Mode};
+use hotkey_manager::Key;
 
 /// Manages a stack of modes for hierarchical key binding navigation
 #[derive(Debug)]
@@ -71,6 +72,14 @@ impl State {
     /// Get a reference to the current mode
     pub fn mode(&self) -> &Mode {
         self.mode_stack.last().unwrap_or(&self.root)
+    }
+
+    /// Get all keys from the current mode as Key objects
+    pub fn keys(&self) -> Vec<Key> {
+        self.mode()
+            .keys()
+            .filter_map(|(key_str, _desc)| Key::parse(key_str).ok())
+            .collect()
     }
 }
 

@@ -12,7 +12,7 @@ use tokio::{signal, time::sleep};
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use hotkey_manager::{Client, IPCResponse, Key, Server};
+use hotkey_manager::{Client, IPCResponse, Server};
 use keymode::{Action, Mode, State};
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -127,35 +127,6 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
         .connection()
         .context("Failed to get client connection")?;
 
-    // Helper function to rebind keys for the current mode
-    async fn rebind_for_mode(
-        connection: &mut hotkey_manager::IPCConnection,
-        state: &State,
-    ) -> Result<()> {
-        let current_mode = state.mode();
-        let keys: Vec<(String, Key)> = current_mode
-            .keys()
-            .filter_map(|(key_str, desc)| match Key::parse(key_str) {
-                Ok(key) => {
-                    info!("Binding key '{}': {}", key_str, desc);
-                    Some((key_str.to_string(), key))
-                }
-                Err(e) => {
-                    error!("Failed to parse key '{}': {}", key_str, e);
-                    None
-                }
-            })
-            .collect();
-
-        connection
-            .rebind(&keys)
-            .await
-            .context("Failed to rebind hotkeys")?;
-
-        info!("Successfully bound {} hotkeys", keys.len());
-        Ok(())
-    }
-
     // Run main logic
     let result = async {
         // Bind keys from the current mode
@@ -164,7 +135,12 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
         tokio::select! {
             _ = async {
                 loop {
-                    rebind_for_mode(connection, &state).await.unwrap();
+                    let keys = state.keys();
+                    connection
+                        .rebind(&keys)
+                        .await
+                        .context("Failed to rebind hotkeys").unwrap();
+
                     // Print available keys before each event
                     println!("\nCurrent mode (depth: {})", state.depth());
                     println!("Available keys:");
