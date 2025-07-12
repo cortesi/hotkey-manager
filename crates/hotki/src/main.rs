@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::signal;
 use tokio::time::sleep;
+use tracing::{debug, error, info, trace};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Default socket path for IPC communication
 const DEFAULT_SOCKET_PATH: &str = "/tmp/hotkey-manager.sock";
@@ -57,12 +59,21 @@ impl Drop for ServerGuard {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env().add_directive("hotkey_manager=trace".parse()?))
+        .init();
+
+    info!("Starting hotki example");
     let socket_path = DEFAULT_SOCKET_PATH;
     let shutdown_sent = Arc::new(AtomicBool::new(false));
 
     // Create a hotkey manager (no hotkeys bound yet)
+    debug!("Creating HotkeyManager");
     let manager =
         HotkeyManager::new().map_err(|e| format!("Failed to create hotkey manager: {e}"))?;
+    info!("HotkeyManager created successfully");
 
     // Create the IPC server with the manager
     let server = IPCServer::new(socket_path, manager);
@@ -75,21 +86,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::select! {
             result = server.run() => {
                 if let Err(e) = result {
-                    eprintln!("Server error: {e}");
+                    error!("Server error: {e}");
                 }
             }
             _ = shutdown_rx => {
-                println!("Server received shutdown signal");
+                info!("Server received shutdown signal");
             }
         }
     });
 
     // Give the server a moment to start
+    debug!("Waiting {}ms for server to start", SERVER_STARTUP_DELAY_MS);
     sleep(Duration::from_millis(SERVER_STARTUP_DELAY_MS)).await;
 
     // Create a client and connect
+    debug!("Creating IPC client");
     let client = IPCClient::new(socket_path);
+    debug!("Connecting to IPC server");
     let connection = client.connect().await?;
+    info!("Connected to IPC server");
     let mut guard = ServerGuard::new(connection, shutdown_sent.clone());
 
     // Set up Ctrl+C handler
@@ -102,106 +117,108 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         shutdown_sent_ctrlc.store(true, Ordering::SeqCst);
     });
 
-    // Run main logic in a select! to handle Ctrl+C
-    let result = tokio::select! {
-        result = async {
-            // List hotkeys before binding
-            println!("Listing hotkeys before rebind...");
-            match guard.connection().await.list_hotkeys().await {
-                Ok(hotkeys) => {
-                    if hotkeys.is_empty() {
-                        println!("No hotkeys registered.");
-                    } else {
-                        println!("Registered hotkeys:");
-                        for (id, identifier, description) in hotkeys {
-                            println!("  ID: {id}, Identifier: {identifier}, Description: {description}");
-                        }
+    // Run main logic
+    let result = async {
+        // List hotkeys before binding
+        println!("Listing hotkeys before rebind...");
+        match guard.connection().await.list_hotkeys().await {
+            Ok(hotkeys) => {
+                if hotkeys.is_empty() {
+                    println!("No hotkeys registered.");
+                } else {
+                    println!("Registered hotkeys:");
+                    for (id, identifier, description) in hotkeys {
+                        println!("  ID: {id}, Identifier: {identifier}, Description: {description}");
                     }
                 }
-                Err(e) => eprintln!("Failed to list hotkeys: {e}"),
             }
+            Err(e) => eprintln!("Failed to list hotkeys: {e}"),
+        }
 
-            // Use the Rebind operation to bind the "q" key
-            println!("\nBinding 'q' key using Rebind operation...");
-            let keys = vec![
-                ("quit".to_string(), Key::parse("q").unwrap()),
-            ];
+        // Use the Rebind operation to bind the "q" key
+        println!("\nBinding 'q' key using Rebind operation...");
+        let keys = vec![
+            ("quit".to_string(), Key::parse("q").unwrap()),
+        ];
+        debug!("Sending rebind request with keys: {:?}", keys);
 
-            match guard.connection().await.rebind(&keys).await {
-                Ok(()) => println!("Successfully bound hotkeys"),
-                Err(e) => {
-                    eprintln!("Failed to rebind hotkeys: {e}");
-                    return Err(e.into());
-                }
+        match guard.connection().await.rebind(&keys).await {
+            Ok(()) => {
+                info!("Successfully bound hotkeys via IPC");
+                println!("Successfully bound hotkeys");
             }
+            Err(e) => {
+                error!("Failed to rebind hotkeys: {e}");
+                eprintln!("Failed to rebind hotkeys: {e}");
+                return Err(e.into());
+            }
+        }
 
-            // List hotkeys after binding
-            println!("\nListing hotkeys after rebind...");
-            match guard.connection().await.list_hotkeys().await {
-                Ok(hotkeys) => {
-                    if hotkeys.is_empty() {
-                        println!("No hotkeys registered.");
-                    } else {
-                        println!("Registered hotkeys:");
-                        for (id, identifier, description) in hotkeys {
-                            println!("  ID: {id}, Identifier: {identifier}, Description: {description}");
-                        }
+        // List hotkeys after binding
+        println!("\nListing hotkeys after rebind...");
+        match guard.connection().await.list_hotkeys().await {
+            Ok(hotkeys) => {
+                if hotkeys.is_empty() {
+                    println!("No hotkeys registered.");
+                } else {
+                    println!("Registered hotkeys:");
+                    for (id, identifier, description) in hotkeys {
+                        println!("  ID: {id}, Identifier: {identifier}, Description: {description}");
                     }
                 }
-                Err(e) => eprintln!("Failed to list hotkeys: {e}"),
             }
+            Err(e) => eprintln!("Failed to list hotkeys: {e}"),
+        }
 
-            // Wait for quit event
-            println!("\nPress 'q' to quit, or Ctrl+C to test graceful shutdown...");
-            println!("Waiting for events...");
+        // Wait for quit event
+        println!("\nPress 'q' to quit, or Ctrl+C to test graceful shutdown...");
+        println!("Waiting for events...");
 
-            // Listen for events from the server
-            tokio::select! {
-                _ = async {
-                    loop {
-                        match guard.connection().await.recv_event().await {
-                            Ok(IPCResponse::HotkeyTriggered { identifier }) => {
-                                println!("Received hotkey event: {identifier}");
-                                if identifier == "quit" {
-                                    println!("Quit hotkey pressed - shutting down...");
-                                    break;
-                                }
-                            }
-                            Ok(response) => {
-                                println!("Received response: {response:?}");
-                            }
-                            Err(e) => {
-                                eprintln!("Error receiving event: {e}");
+        // Listen for events from the server
+        debug!("Starting event listener loop");
+        tokio::select! {
+            _ = async {
+                loop {
+                    trace!("Waiting for IPC event...");
+                    match guard.connection().await.recv_event().await {
+                        Ok(IPCResponse::HotkeyTriggered { identifier }) => {
+                            info!("Received hotkey event: {identifier}");
+                            println!("Received hotkey event: {identifier}");
+                            if identifier == "quit" {
+                                info!("Quit hotkey pressed - shutting down...");
+                                println!("Quit hotkey pressed - shutting down...");
                                 break;
                             }
                         }
+                        Ok(response) => {
+                            debug!("Received response: {response:?}");
+                            println!("Received response: {response:?}");
+                        }
+                        Err(e) => {
+                            error!("Error receiving event: {e}");
+                            eprintln!("Error receiving event: {e}");
+                            break;
+                        }
                     }
-                } => {
-                    println!("Event loop ended");
                 }
-                _ = async {
-                    while !shutdown_sent.load(Ordering::SeqCst) {
-                        sleep(Duration::from_millis(100)).await;
-                    }
-                } => {
-                    println!("Shutdown requested via Ctrl+C");
-                }
+            } => {
+                info!("Event loop ended");
+                println!("Event loop ended");
             }
-
-            // Normal shutdown
-            guard.shutdown().await?;
-            Ok::<(), Box<dyn std::error::Error>>(())
-        } => result,
-
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {
-            if shutdown_sent.load(Ordering::SeqCst) {
-                guard.shutdown().await?;
-                Ok(())
-            } else {
-                Ok(())
+            _ = async {
+                while !shutdown_sent.load(Ordering::SeqCst) {
+                    sleep(Duration::from_millis(100)).await;
+                }
+            } => {
+                info!("Shutdown requested via Ctrl+C");
+                println!("Shutdown requested via Ctrl+C");
             }
         }
-    };
+
+        // Normal shutdown
+        guard.shutdown().await?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }.await;
 
     // Ensure shutdown is sent
     if !shutdown_sent.load(Ordering::SeqCst) {

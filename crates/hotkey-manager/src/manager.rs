@@ -6,6 +6,7 @@ use global_hotkey::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tracing::{debug, error, info, trace, warn};
 
 /// Type alias for hotkey callbacks that receive the identifier
 pub type HotkeyCallback = Arc<dyn Fn(&str) + Send + Sync>;
@@ -35,28 +36,45 @@ impl HotkeyManager {
     ///
     /// Returns an error if the underlying global hotkey manager fails to initialize.
     pub fn new() -> Result<Self> {
+        trace!("Creating new HotkeyManager");
         let manager = GlobalHotKeyManager::new()?;
+        debug!("GlobalHotKeyManager created successfully");
 
         let hotkeys = Arc::new(Mutex::new(HashMap::<u32, HotkeyEntry>::new()));
         let hotkeys_clone = hotkeys.clone();
 
         // Spawn a thread to listen for hotkey events
-        std::thread::spawn(move || loop {
-            if let Ok(event) = GlobalHotKeyEvent::receiver().recv() {
-                if event.state == global_hotkey::HotKeyState::Pressed {
-                    if let Ok(hotkeys) = hotkeys_clone.lock() {
-                        if let Some(entry) = hotkeys.get(&event.id) {
-                            (entry.callback)(&entry.identifier);
+        std::thread::spawn(move || {
+            info!("Hotkey event listener thread started");
+            loop {
+                match GlobalHotKeyEvent::receiver().recv() {
+                    Ok(event) => {
+                        trace!("Received hotkey event: id={}, state={:?}", event.id, event.state);
+                        if event.state == global_hotkey::HotKeyState::Pressed {
+                            debug!("Hotkey pressed event detected for id={}", event.id);
+                            if let Ok(hotkeys) = hotkeys_clone.lock() {
+                                if let Some(entry) = hotkeys.get(&event.id) {
+                                    info!("Triggering callback for identifier: '{}'", entry.identifier);
+                                    (entry.callback)(&entry.identifier);
+                                } else {
+                                    warn!("No hotkey entry found for id: {}", event.id);
+                                }
+                            }
                         }
+                    }
+                    Err(e) => {
+                        error!("Error receiving hotkey event: {:?}", e);
                     }
                 }
             }
         });
 
-        Ok(Self {
+        let result = Self {
             manager: Arc::new(manager),
             hotkeys,
-        })
+        };
+        info!("HotkeyManager initialized successfully");
+        Ok(result)
     }
 
     /// Binds a new hotkey with a callback function.
@@ -85,19 +103,27 @@ impl HotkeyManager {
     {
         let key = key.into();
         let hotkey = key.to_hotkey();
+        let identifier = identifier.into();
+        debug!("Binding hotkey '{}': {:?} with id {}", identifier, key, hotkey.id());
+        trace!("Key details: {:?}", key);
 
         // Register with the system
+        trace!("Registering hotkey with system...");
         self.manager.register(hotkey)?;
+        info!("Successfully registered hotkey '{}' with system", identifier);
 
         // Store the hotkey entry
+        trace!("Acquiring hotkeys lock...");
         let mut hotkeys = self.hotkeys.lock().unwrap();
         let id = hotkey.id();
         let entry = HotkeyEntry {
             hotkey,
-            identifier: identifier.into(),
+            identifier: identifier.clone(),
             callback: Arc::new(callback),
         };
         hotkeys.insert(id, entry);
+        debug!("Stored hotkey entry for '{}' with id {}", identifier, id);
+        trace!("Total hotkeys registered: {}", hotkeys.len());
 
         Ok(id)
     }
@@ -123,7 +149,9 @@ impl HotkeyManager {
     where
         F: Fn(&str) + Send + Sync + 'static,
     {
+        trace!("Parsing key string: '{}'...", key_str);
         let key = Key::parse(key_str)?;
+        debug!("Parsed key string '{}' successfully", key_str);
         self.bind(identifier, key, callback)
     }
 
@@ -137,12 +165,16 @@ impl HotkeyManager {
     ///
     /// Returns an error if the hotkey is not found or unregistration fails.
     pub fn unbind(&self, id: u32) -> Result<()> {
+        debug!("Unbinding hotkey with id {}", id);
         let mut hotkeys = self.hotkeys.lock().unwrap();
 
         if let Some(entry) = hotkeys.remove(&id) {
+            info!("Unregistering hotkey '{}' (id: {})", entry.identifier, id);
             self.manager.unregister(entry.hotkey)?;
+            trace!("Hotkey unregistered successfully");
             Ok(())
         } else {
+            warn!("Attempted to unbind non-existent hotkey with id {}", id);
             Err(Error::HotkeyOperation("Hotkey not found".to_string()))
         }
     }
@@ -153,12 +185,17 @@ impl HotkeyManager {
     ///
     /// Returns an error if any hotkey fails to unregister.
     pub fn unbind_all(&self) -> Result<()> {
+        debug!("Unbinding all hotkeys");
         let mut hotkeys = self.hotkeys.lock().unwrap();
+        let count = hotkeys.len();
+        trace!("Found {} hotkeys to unbind", count);
 
-        for (_, entry) in hotkeys.drain() {
+        for (id, entry) in hotkeys.drain() {
+            trace!("Unregistering hotkey '{}' (id: {})", entry.identifier, id);
             self.manager.unregister(entry.hotkey)?;
         }
 
+        info!("Successfully unbound all {} hotkeys", count);
         Ok(())
     }
 
@@ -166,11 +203,14 @@ impl HotkeyManager {
     ///
     /// Each entry contains the hotkey ID, identifier, and a string representation of the hotkey.
     pub fn list_hotkeys(&self) -> Vec<(u32, String, String)> {
+        trace!("Listing all hotkeys");
         let hotkeys = self.hotkeys.lock().unwrap();
-        hotkeys
+        let result = hotkeys
             .iter()
             .map(|(id, entry)| (*id, entry.identifier.clone(), format_hotkey(&entry.hotkey)))
-            .collect()
+            .collect::<Vec<_>>();
+        debug!("Found {} registered hotkeys", result.len());
+        result
     }
 
     /// Convenience method to bind multiple hotkeys with a single callback that receives the identifier.
@@ -216,8 +256,11 @@ impl HotkeyManager {
 
 impl Drop for HotkeyManager {
     fn drop(&mut self) {
+        debug!("Dropping HotkeyManager, cleaning up all hotkeys");
         // Clean up all hotkeys when the manager is dropped
-        let _ = self.unbind_all();
+        if let Err(e) = self.unbind_all() {
+            error!("Failed to unbind all hotkeys during drop: {:?}", e);
+        }
     }
 }
 

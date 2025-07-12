@@ -30,6 +30,7 @@ use crate::{
     error::{Error, Result},
     HotkeyManager, Key,
 };
+use tracing::{debug, error, info, trace, warn};
 
 /// Represents requests that can be sent from IPC clients to the server.
 ///
@@ -153,8 +154,11 @@ async fn handle_client(
     manager: Arc<HotkeyManager>,
     event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
 ) -> Result<()> {
+    debug!("handle_client: Starting client handler");
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    trace!("handle_client: Created event channel");
     *event_sender.lock().unwrap() = Some(event_tx.clone());
+    debug!("handle_client: Set event sender in shared state");
 
     let (reader, writer) = stream.into_split();
     let reader = Arc::new(tokio::sync::Mutex::new(reader));
@@ -163,17 +167,34 @@ async fn handle_client(
     // Spawn task to forward events to client
     let writer_clone = writer.clone();
     tokio::spawn(async move {
+        info!("Event forwarding task started");
         while let Some(event) = event_rx.recv().await {
+            debug!("Event forwarding task received event: {:?}", event);
             let data = match serde_json::to_vec(&event) {
                 Ok(d) => d,
-                Err(_) => continue,
+                Err(e) => {
+                    error!("Failed to serialize event: {:?}", e);
+                    continue;
+                }
             };
             let len_bytes = (data.len() as u32).to_be_bytes();
             let mut writer = writer_clone.lock().await;
-            let _ = writer.write_all(&len_bytes).await;
-            let _ = writer.write_all(&data).await;
-            let _ = writer.flush().await;
+            trace!("Sending event to client, data len: {}", data.len());
+            if let Err(e) = writer.write_all(&len_bytes).await {
+                error!("Failed to write event length: {:?}", e);
+                break;
+            }
+            if let Err(e) = writer.write_all(&data).await {
+                error!("Failed to write event data: {:?}", e);
+                break;
+            }
+            if let Err(e) = writer.flush().await {
+                error!("Failed to flush event data: {:?}", e);
+                break;
+            }
+            trace!("Event sent to client successfully");
         }
+        info!("Event forwarding task ended");
     });
 
     loop {
@@ -197,8 +218,10 @@ async fn handle_client(
         }
 
         let request: IPCRequest = serde_json::from_slice(&data)?;
+        debug!("Received request: {:?}", request);
         let is_shutdown = matches!(request, IPCRequest::Shutdown);
-        let response = handle_request(&manager, request, &event_tx).await;
+        let response = handle_request(&manager, request, &event_sender).await;
+        trace!("Generated response: {:?}", response);
 
         // Send response
         let response_data = serde_json::to_vec(&response)?;
@@ -228,7 +251,7 @@ async fn handle_client(
 async fn handle_request(
     manager: &Arc<HotkeyManager>,
     request: IPCRequest,
-    event_tx: &tokio::sync::mpsc::UnboundedSender<IPCResponse>,
+    event_sender: &Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
 ) -> IPCResponse {
     match request {
         IPCRequest::ListHotkeys => {
@@ -245,6 +268,7 @@ async fn handle_request(
         },
 
         IPCRequest::Rebind { keys } => {
+            info!("Processing Rebind request with {} keys", keys.len());
             // First unbind all existing hotkeys
             if let Err(e) = manager.unbind_all() {
                 return IPCResponse::Error {
@@ -252,11 +276,12 @@ async fn handle_request(
                 };
             }
 
-            // Get the event sender for creating callbacks
-            let event_sender = Arc::new(Mutex::new(Some(event_tx.clone())));
-            let callback = create_event_forwarder(event_sender);
+            // Use the existing event sender for creating callbacks
+            debug!("Creating event forwarder with existing event sender");
+            let callback = create_event_forwarder(event_sender.clone());
 
             // Bind all the new hotkeys
+            debug!("Binding {} new hotkeys", keys.len());
             let results = manager.bind_multiple(&keys, callback);
 
             // Check if any bindings failed
@@ -451,10 +476,17 @@ pub fn create_event_forwarder(
     event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
 ) -> impl Fn(&str) + Send + Sync + Clone + 'static {
     move |identifier| {
+        trace!("Event forwarder called for identifier: '{}'", identifier);
         if let Some(sender) = event_sender.lock().unwrap().as_ref() {
-            let _ = sender.send(IPCResponse::HotkeyTriggered {
+            debug!("Sending HotkeyTriggered event for identifier: '{}'", identifier);
+            match sender.send(IPCResponse::HotkeyTriggered {
                 identifier: identifier.to_string(),
-            });
+            }) {
+                Ok(_) => trace!("HotkeyTriggered event sent successfully"),
+                Err(e) => error!("Failed to send HotkeyTriggered event: {:?}", e),
+            }
+        } else {
+            warn!("No event sender available to forward hotkey event for identifier: '{}'", identifier);
         }
     }
 }
