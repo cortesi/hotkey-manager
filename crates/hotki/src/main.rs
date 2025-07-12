@@ -10,13 +10,10 @@ use std::{
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use tokio::{signal, time::sleep};
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use hotkey_manager::{Client, Key, Server, ipc::IPCResponse};
-
-/// Delay to wait for server startup
-const SERVER_STARTUP_DELAY_MS: u64 = 500;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum LogLevel {
@@ -69,11 +66,11 @@ fn main() -> Result<()> {
         .init();
 
     if args.server {
-        info!("Starting hotki in server mode");
+        info!("Starting hotki server");
         Server::new().run()?;
         Ok(())
     } else {
-        info!("Starting hotki in client mode");
+        info!("Starting hotki client");
         let runtime = tokio::runtime::Runtime::new().context("Failed to create Tokio runtime")?;
         runtime.block_on(client_main())
     }
@@ -81,12 +78,10 @@ fn main() -> Result<()> {
 
 async fn client_main() -> Result<()> {
     let shutdown_sent = Arc::new(AtomicBool::new(false));
-    info!("Starting client");
     let mut client = Client::new()
         .with_server_executable(
             env::current_exe().context("Failed to get current executable path")?,
         )
-        .with_server_startup_timeout(Duration::from_millis(SERVER_STARTUP_DELAY_MS))
         .connect()
         .await
         .context("Failed to connect to hotkey server")?;
@@ -118,30 +113,21 @@ async fn client_main() -> Result<()> {
             .context("Failed to rebind hotkeys")?;
 
         info!("Successfully bound hotkeys via IPC");
-        println!("Successfully bound hotkeys");
-
-        // Wait for quit event
-        println!("\nPress 'q' to quit, or Ctrl+C to test graceful shutdown...");
-        println!("Waiting for events...");
-
-        // Listen for events from the server
+        info!("Press 'q' to quit, or Ctrl+C to test graceful shutdown...");
         debug!("Starting event listener loop");
         tokio::select! {
             _ = async {
                 loop {
-                    trace!("Waiting for IPC event...");
                     match connection.recv_event().await {
                         Ok(IPCResponse::HotkeyTriggered { identifier }) => {
                             info!("Received hotkey event: {identifier}");
-                            debug!("Received hotkey event: {identifier}");
                             if identifier == "quit" {
                                 info!("Quit hotkey pressed - shutting down...");
                                 break;
                             }
                         }
                         Ok(response) => {
-                            debug!("Received response: {response:?}");
-                            debug!("Received unexpected response: {response:?}");
+                            info!("Received unexpected response: {response:?}");
                         }
                         Err(e) => {
                             error!("Error receiving event: {e}");
@@ -165,7 +151,7 @@ async fn client_main() -> Result<()> {
     }
     .await;
 
-    println!("\nShutting down...");
+    info!("\nShutting down...");
     client
         .disconnect(true)
         .await

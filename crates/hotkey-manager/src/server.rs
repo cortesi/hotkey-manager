@@ -26,12 +26,6 @@ impl Server {
         }
     }
 
-    /// Create a new hotkey server with the given socket path
-    pub fn new_with_socket(socket_path: impl Into<String>) -> Self {
-        Self {
-            socket_path: socket_path.into(),
-        }
-    }
 
     /// Set the socket path for IPC communication
     pub fn with_socket_path(mut self, path: impl Into<String>) -> Self {
@@ -139,17 +133,12 @@ mod tests {
         let server = Server::new().with_socket_path("/custom/path.sock");
         assert_eq!(server.socket_path, "/custom/path.sock");
 
-        // Test chaining from new_with_socket
+        // Test chaining from new
         let server =
-            Server::new_with_socket("/initial/path.sock").with_socket_path("/another/path.sock");
+            Server::new().with_socket_path("/initial/path.sock").with_socket_path("/another/path.sock");
         assert_eq!(server.socket_path, "/another/path.sock");
     }
 
-    #[test]
-    fn test_server_new_with_socket() {
-        let server = Server::new_with_socket("/test/path.sock");
-        assert_eq!(server.socket_path, "/test/path.sock");
-    }
 
     #[test]
     fn test_server_default() {

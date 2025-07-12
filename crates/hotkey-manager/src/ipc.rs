@@ -130,10 +130,9 @@ impl IPCServer {
         let manager = self.manager.clone();
         let event_sender = self.event_sender.clone();
 
-        println!("Client connected, server will exit when client disconnects");
+        info!("Client connected");
         handle_client(stream, manager, event_sender).await?;
-        println!("Client disconnected, shutting down server");
-
+        info!("Client disconnected");
         Ok(())
     }
 }
@@ -371,7 +370,6 @@ impl IPCConnection {
         let response: IPCResponse = serde_json::from_slice(&data)?;
         Ok(response)
     }
-
 
     /// Send a shutdown request to the server.
     ///
