@@ -478,7 +478,10 @@ pub fn create_event_forwarder(
     move |identifier| {
         trace!("Event forwarder called for identifier: '{}'", identifier);
         if let Some(sender) = event_sender.lock().unwrap().as_ref() {
-            debug!("Sending HotkeyTriggered event for identifier: '{}'", identifier);
+            debug!(
+                "Sending HotkeyTriggered event for identifier: '{}'",
+                identifier
+            );
             match sender.send(IPCResponse::HotkeyTriggered {
                 identifier: identifier.to_string(),
             }) {
@@ -486,7 +489,10 @@ pub fn create_event_forwarder(
                 Err(e) => error!("Failed to send HotkeyTriggered event: {:?}", e),
             }
         } else {
-            warn!("No event sender available to forward hotkey event for identifier: '{}'", identifier);
+            warn!(
+                "No event sender available to forward hotkey event for identifier: '{}'",
+                identifier
+            );
         }
     }
 }

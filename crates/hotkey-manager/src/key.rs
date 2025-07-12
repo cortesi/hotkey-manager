@@ -321,4 +321,3 @@ mod tests {
         assert!(Key::parse("ctrl+unknown").is_err());
     }
 }
-

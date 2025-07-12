@@ -13,3 +13,4 @@ hotkey-manager = { path = "../hotkey-manager" }
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tao = "0.30"

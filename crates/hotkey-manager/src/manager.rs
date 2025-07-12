@@ -1,9 +1,6 @@
 use crate::error::{Error, Result};
 use crate::Key;
-use global_hotkey::{
-    hotkey::HotKey,
-    GlobalHotKeyEvent, GlobalHotKeyManager,
-};
+use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, trace, warn};
@@ -46,24 +43,57 @@ impl HotkeyManager {
         // Spawn a thread to listen for hotkey events
         std::thread::spawn(move || {
             info!("Hotkey event listener thread started");
+            trace!("Thread ID: {:?}", std::thread::current().id());
+
             loop {
+                trace!("Waiting for hotkey event...");
                 match GlobalHotKeyEvent::receiver().recv() {
                     Ok(event) => {
-                        trace!("Received hotkey event: id={}, state={:?}", event.id, event.state);
+                        info!(
+                            "*** HOTKEY EVENT RECEIVED: id={}, state={:?}",
+                            event.id, event.state
+                        );
+                        trace!(
+                            "Received hotkey event: id={}, state={:?}",
+                            event.id,
+                            event.state
+                        );
+
                         if event.state == global_hotkey::HotKeyState::Pressed {
                             debug!("Hotkey pressed event detected for id={}", event.id);
-                            if let Ok(hotkeys) = hotkeys_clone.lock() {
-                                if let Some(entry) = hotkeys.get(&event.id) {
-                                    info!("Triggering callback for identifier: '{}'", entry.identifier);
-                                    (entry.callback)(&entry.identifier);
-                                } else {
-                                    warn!("No hotkey entry found for id: {}", event.id);
+
+                            match hotkeys_clone.lock() {
+                                Ok(hotkeys) => {
+                                    trace!(
+                                        "Successfully acquired hotkeys lock, checking {} entries",
+                                        hotkeys.len()
+                                    );
+
+                                    if let Some(entry) = hotkeys.get(&event.id) {
+                                        info!(
+                                            "Triggering callback for identifier: '{}'",
+                                            entry.identifier
+                                        );
+                                        trace!("About to call callback for '{}'", entry.identifier);
+                                        (entry.callback)(&entry.identifier);
+                                        trace!("Callback completed for '{}'", entry.identifier);
+                                    } else {
+                                        warn!("No hotkey entry found for id: {} (available IDs: {:?})", 
+                                              event.id,
+                                              hotkeys.keys().collect::<Vec<_>>());
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to acquire hotkeys lock: {:?}", e);
                                 }
                             }
+                        } else {
+                            trace!("Ignoring hotkey event with state: {:?}", event.state);
                         }
                     }
                     Err(e) => {
                         error!("Error receiving hotkey event: {:?}", e);
+                        trace!("Receiver error details: {:?}", e);
                     }
                 }
             }
@@ -104,18 +134,27 @@ impl HotkeyManager {
         let key = key.into();
         let hotkey = key.to_hotkey();
         let identifier = identifier.into();
-        debug!("Binding hotkey '{}': {:?} with id {}", identifier, key, hotkey.id());
+        debug!(
+            "Binding hotkey '{}': {:?} with id {}",
+            identifier,
+            key,
+            hotkey.id()
+        );
         trace!("Key details: {:?}", key);
 
         // Register with the system
         trace!("Registering hotkey with system...");
         self.manager.register(hotkey)?;
-        info!("Successfully registered hotkey '{}' with system", identifier);
+        info!(
+            "Successfully registered hotkey '{}' with system",
+            identifier
+        );
 
         // Store the hotkey entry
         trace!("Acquiring hotkeys lock...");
         let mut hotkeys = self.hotkeys.lock().unwrap();
         let id = hotkey.id();
+        trace!("Hotkey ID from hotkey.id(): {}", id);
         let entry = HotkeyEntry {
             hotkey,
             identifier: identifier.clone(),
@@ -124,6 +163,10 @@ impl HotkeyManager {
         hotkeys.insert(id, entry);
         debug!("Stored hotkey entry for '{}' with id {}", identifier, id);
         trace!("Total hotkeys registered: {}", hotkeys.len());
+        trace!(
+            "All registered hotkey IDs: {:?}",
+            hotkeys.keys().collect::<Vec<_>>()
+        );
 
         Ok(id)
     }

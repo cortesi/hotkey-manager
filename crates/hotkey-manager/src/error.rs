@@ -39,4 +39,3 @@ impl From<global_hotkey::Error> for Error {
         Error::HotkeyOperation(err.to_string())
     }
 }
-
