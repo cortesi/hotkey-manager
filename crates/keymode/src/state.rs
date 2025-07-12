@@ -1,4 +1,4 @@
-use crate::keymap::{Action, Mode};
+use crate::mode::{Action, Mode};
 
 /// Manages a stack of modes for hierarchical key binding navigation
 #[derive(Debug)]
@@ -77,7 +77,7 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keymap::Action;
+    use crate::mode::Action;
 
     #[test]
     fn test_state_navigation() {
