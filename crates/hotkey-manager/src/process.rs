@@ -113,7 +113,7 @@ impl ServerProcess {
         // Spawn the process
         let child = command
             .spawn()
-            .map_err(|e| Error::Io(e))?;
+            .map_err(Error::Io)?;
 
         let pid = child.id();
         info!("Server process spawned with PID: {}", pid);
@@ -173,7 +173,7 @@ impl ServerProcess {
         if let Some(child) = self.child.as_ref() {
             // Try to get the process status without waiting
             match std::process::Command::new("kill")
-                .args(&["-0", &child.id().to_string()])
+                .args(["-0", &child.id().to_string()])
                 .output()
             {
                 Ok(output) => {
@@ -281,7 +281,6 @@ impl ProcessBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
     #[test]
     fn test_process_config() {

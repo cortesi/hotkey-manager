@@ -120,12 +120,12 @@ async fn run_client() -> Result<(), Box<dyn std::error::Error>> {
             result = connection.recv_event() => {
                 match result {
                     Ok(IPCResponse::HotkeyTriggered { identifier }) => {
-                        println!("Hotkey triggered: {}", identifier);
+                        println!("Hotkey triggered: {identifier}");
                         if identifier == "quit" {
                             break;
                         }
                     }
-                    Ok(resp) => println!("Received: {:?}", resp),
+                    Ok(resp) => println!("Received: {resp:?}"),
                     Err(e) => {
                         error!("Error receiving event: {}", e);
                         break;
