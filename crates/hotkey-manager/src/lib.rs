@@ -18,9 +18,9 @@ pub mod process;
 pub mod server;
 
 // Re-export the main types from modules
-pub use client::{Client, ManagedClientConfig};
+pub use client::Client;
 pub use error::{Error, Result};
 pub use key::Key;
-pub use manager::{HotkeyCallback, HotkeyManager};
-pub use process::{ProcessBuilder, ProcessConfig, ServerProcess};
+pub use manager::HotkeyManager;
+pub use process::{ProcessConfig, ServerProcess};
 pub use server::Server;

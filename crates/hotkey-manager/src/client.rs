@@ -5,25 +5,35 @@ use std::time::Duration;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, error, info, warn};
 
-/// Configuration for a managed client
-#[derive(Debug, Clone)]
-pub struct ManagedClientConfig {
+/// A managed client that can automatically spawn and connect to a server
+pub struct Client {
     /// Socket path for IPC communication
-    pub socket_path: String,
+    socket_path: String,
     /// Optional server configuration (if None, won't spawn server)
-    pub server_config: Option<ProcessConfig>,
+    server_config: Option<ProcessConfig>,
     /// How long to wait for server to be ready after spawning
-    pub server_startup_timeout: Duration,
+    server_startup_timeout: Duration,
     /// How long to wait for initial connection
-    pub connection_timeout: Duration,
+    connection_timeout: Duration,
     /// Number of connection attempts before giving up
-    pub max_connection_attempts: u32,
+    max_connection_attempts: u32,
     /// Delay between connection attempts
-    pub connection_retry_delay: Duration,
+    connection_retry_delay: Duration,
+    /// The spawned server process (if any)
+    server: Option<ServerProcess>,
+    /// The active IPC connection (if connected)
+    connection: Option<IPCConnection>,
 }
 
-impl Default for ManagedClientConfig {
+impl Default for Client {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Client {
+    /// Create a new managed client with default configuration
+    pub fn new() -> Self {
         Self {
             socket_path: DEFAULT_SOCKET_PATH.to_string(),
             server_config: None,
@@ -31,17 +41,29 @@ impl Default for ManagedClientConfig {
             connection_timeout: Duration::from_secs(5),
             max_connection_attempts: 5,
             connection_retry_delay: Duration::from_millis(200),
+            server: None,
+            connection: None,
         }
     }
-}
 
-impl ManagedClientConfig {
-    /// Create a new configuration with the given socket path
-    pub fn new(socket_path: impl Into<String>) -> Self {
+    /// Create a new managed client with the given socket path
+    pub fn new_with_socket(socket_path: impl Into<String>) -> Self {
         Self {
             socket_path: socket_path.into(),
-            ..Default::default()
+            server_config: None,
+            server_startup_timeout: Duration::from_millis(1000),
+            connection_timeout: Duration::from_secs(5),
+            max_connection_attempts: 5,
+            connection_retry_delay: Duration::from_millis(200),
+            server: None,
+            connection: None,
         }
+    }
+
+    /// Set the socket path
+    pub fn with_socket_path(mut self, socket_path: impl Into<String>) -> Self {
+        self.socket_path = socket_path.into();
+        self
     }
 
     /// Set the server configuration for automatic spawning
@@ -57,101 +79,26 @@ impl ManagedClientConfig {
     }
 
     /// Set the server startup timeout
-    pub fn server_startup_timeout(mut self, timeout: Duration) -> Self {
+    pub fn with_server_startup_timeout(mut self, timeout: Duration) -> Self {
         self.server_startup_timeout = timeout;
         self
     }
 
     /// Set the connection timeout
-    pub fn connection_timeout(mut self, timeout: Duration) -> Self {
+    pub fn with_connection_timeout(mut self, timeout: Duration) -> Self {
         self.connection_timeout = timeout;
         self
     }
 
     /// Set the maximum number of connection attempts
-    pub fn max_connection_attempts(mut self, attempts: u32) -> Self {
+    pub fn with_max_connection_attempts(mut self, attempts: u32) -> Self {
         self.max_connection_attempts = attempts;
         self
     }
 
     /// Set the delay between connection retry attempts
-    pub fn connection_retry_delay(mut self, delay: Duration) -> Self {
-        self.connection_retry_delay = delay;
-        self
-    }
-}
-
-/// A managed client that can automatically spawn and connect to a server
-pub struct Client {
-    config: ManagedClientConfig,
-    server: Option<ServerProcess>,
-    connection: Option<IPCConnection>,
-}
-
-impl Default for Client {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Client {
-    /// Create a new managed client with default configuration
-    pub fn new() -> Self {
-        Self {
-            config: ManagedClientConfig::default(),
-            server: None,
-            connection: None,
-        }
-    }
-
-    /// Create a new managed client with the given socket path
-    pub fn new_with_socket(socket_path: impl Into<String>) -> Self {
-        Self {
-            config: ManagedClientConfig::new(socket_path),
-            server: None,
-            connection: None,
-        }
-    }
-
-    /// Set the socket path
-    pub fn with_socket_path(mut self, socket_path: impl Into<String>) -> Self {
-        self.config.socket_path = socket_path.into();
-        self
-    }
-
-    /// Set the server configuration for automatic spawning
-    pub fn with_server(mut self, config: ProcessConfig) -> Self {
-        self.config.server_config = Some(config);
-        self
-    }
-
-    /// Set the server executable for automatic spawning (convenience method)
-    pub fn with_server_executable(mut self, executable: impl Into<PathBuf>) -> Self {
-        self.config.server_config = Some(ProcessConfig::new(executable));
-        self
-    }
-
-    /// Set the server startup timeout
-    pub fn with_server_startup_timeout(mut self, timeout: Duration) -> Self {
-        self.config.server_startup_timeout = timeout;
-        self
-    }
-
-    /// Set the connection timeout
-    pub fn with_connection_timeout(mut self, timeout: Duration) -> Self {
-        self.config.connection_timeout = timeout;
-        self
-    }
-
-    /// Set the maximum number of connection attempts
-    pub fn with_max_connection_attempts(mut self, attempts: u32) -> Self {
-        self.config.max_connection_attempts = attempts;
-        self
-    }
-
-    /// Set the delay between connection retry attempts
     pub fn with_connection_retry_delay(mut self, delay: Duration) -> Self {
-        self.config.connection_retry_delay = delay;
+        self.connection_retry_delay = delay;
         self
     }
 
@@ -166,7 +113,7 @@ impl Client {
         // Try to connect to existing server first
         info!(
             "Attempting to connect to existing server at {}",
-            self.config.socket_path
+            self.socket_path
         );
         match self.try_connect().await {
             Ok(connection) => {
@@ -180,7 +127,7 @@ impl Client {
         }
 
         // If we have server config, spawn the server
-        if let Some(server_config) = &self.config.server_config {
+        if let Some(server_config) = &self.server_config {
             info!("No existing server found, spawning new server");
 
             let mut server = ServerProcess::new(server_config.clone());
@@ -189,7 +136,7 @@ impl Client {
             // Try to connect with retries, polling for server readiness
             debug!(
                 "Polling for server readiness (timeout: {:?})",
-                self.config.server_startup_timeout
+                self.server_startup_timeout
             );
 
             let start_time = tokio::time::Instant::now();
@@ -203,7 +150,7 @@ impl Client {
                     }
                     Err(_) => {
                         // Check if we've exceeded the startup timeout
-                        if start_time.elapsed() >= self.config.server_startup_timeout {
+                        if start_time.elapsed() >= self.server_startup_timeout {
                             debug!("Server startup timeout reached, trying with retries");
                             break None;
                         }
@@ -253,14 +200,14 @@ impl Client {
 
     /// Try to connect to the server once
     async fn try_connect(&self) -> Result<IPCConnection> {
-        let client = IPCClient::new(&self.config.socket_path);
+        let client = IPCClient::new(&self.socket_path);
 
-        match timeout(self.config.connection_timeout, client.connect()).await {
+        match timeout(self.connection_timeout, client.connect()).await {
             Ok(Ok(connection)) => Ok(connection),
             Ok(Err(e)) => Err(e),
             Err(_) => Err(Error::Ipc(format!(
                 "Connection timeout after {:?}",
-                self.config.connection_timeout
+                self.connection_timeout
             ))),
         }
     }
@@ -269,10 +216,10 @@ impl Client {
     async fn try_connect_with_retries(&self) -> Result<IPCConnection> {
         let mut last_error = None;
 
-        for attempt in 1..=self.config.max_connection_attempts {
+        for attempt in 1..=self.max_connection_attempts {
             debug!(
                 "Connection attempt {}/{}",
-                attempt, self.config.max_connection_attempts
+                attempt, self.max_connection_attempts
             );
 
             match self.try_connect().await {
@@ -281,8 +228,8 @@ impl Client {
                     warn!("Connection attempt {} failed: {}", attempt, e);
                     last_error = Some(e);
 
-                    if attempt < self.config.max_connection_attempts {
-                        sleep(self.config.connection_retry_delay).await;
+                    if attempt < self.max_connection_attempts {
+                        sleep(self.connection_retry_delay).await;
                     }
                 }
             }
@@ -355,31 +302,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_config_builder() {
-        let config = ManagedClientConfig::new("/custom/socket.sock")
-            .server_startup_timeout(Duration::from_secs(2))
-            .connection_timeout(Duration::from_secs(10))
-            .max_connection_attempts(3)
-            .connection_retry_delay(Duration::from_millis(500));
-
-        assert_eq!(config.socket_path, "/custom/socket.sock");
-        assert_eq!(config.server_startup_timeout, Duration::from_secs(2));
-        assert_eq!(config.connection_timeout, Duration::from_secs(10));
-        assert_eq!(config.max_connection_attempts, 3);
-        assert_eq!(config.connection_retry_delay, Duration::from_millis(500));
-    }
-
-    #[test]
     fn test_client_builder() {
-        let client = Client::new_with_socket("/test/socket.sock").with_max_connection_attempts(10);
+        let client = Client::new_with_socket("/test/socket.sock")
+            .with_max_connection_attempts(10)
+            .with_server_startup_timeout(Duration::from_secs(2))
+            .with_connection_timeout(Duration::from_secs(10))
+            .with_connection_retry_delay(Duration::from_millis(500));
 
-        assert_eq!(client.config.socket_path, "/test/socket.sock");
-        assert_eq!(client.config.max_connection_attempts, 10);
+        assert_eq!(client.socket_path, "/test/socket.sock");
+        assert_eq!(client.max_connection_attempts, 10);
+        assert_eq!(client.server_startup_timeout, Duration::from_secs(2));
+        assert_eq!(client.connection_timeout, Duration::from_secs(10));
+        assert_eq!(client.connection_retry_delay, Duration::from_millis(500));
     }
 
     #[test]
     fn test_client_default_socket_path() {
         let client = Client::new();
-        assert_eq!(client.config.socket_path, DEFAULT_SOCKET_PATH);
+        assert_eq!(client.socket_path, DEFAULT_SOCKET_PATH);
     }
 }

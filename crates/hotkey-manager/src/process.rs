@@ -8,7 +8,7 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 /// Default delay to wait for server startup
-const DEFAULT_STARTUP_DELAY: Duration = Duration::from_millis(500);
+pub(crate) const DEFAULT_STARTUP_DELAY: Duration = Duration::from_millis(500);
 
 /// Configuration for launching a hotkey server process
 #[derive(Debug, Clone)]
@@ -224,61 +224,6 @@ impl Drop for ServerProcess {
     }
 }
 
-/// Builder for creating a ServerProcess with fluent API
-pub struct ProcessBuilder {
-    config: ProcessConfig,
-}
-
-impl ProcessBuilder {
-    /// Create a new process builder with the given executable
-    pub fn new(executable: impl Into<PathBuf>) -> Self {
-        Self {
-            config: ProcessConfig::new(executable),
-        }
-    }
-
-    /// Add an argument to pass to the server
-    pub fn arg(mut self, arg: impl Into<String>) -> Self {
-        self.config = self.config.arg(arg);
-        self
-    }
-
-    /// Add multiple arguments
-    pub fn args(mut self, args: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.config = self.config.args(args);
-        self
-    }
-
-    /// Set an environment variable
-    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.config = self.config.env(key, value);
-        self
-    }
-
-    /// Set the startup delay
-    pub fn startup_delay(mut self, delay: Duration) -> Self {
-        self.config = self.config.startup_delay(delay);
-        self
-    }
-
-    /// Set whether to inherit the parent's environment
-    pub fn inherit_env(mut self, inherit: bool) -> Self {
-        self.config = self.config.inherit_env(inherit);
-        self
-    }
-
-    /// Build the ServerProcess
-    pub fn build(self) -> ServerProcess {
-        ServerProcess::new(self.config)
-    }
-
-    /// Build and start the ServerProcess
-    pub async fn start(self) -> Result<ServerProcess> {
-        let mut process = self.build();
-        process.start().await?;
-        Ok(process)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -303,14 +248,4 @@ mod tests {
         assert!(!config.inherit_env);
     }
 
-    #[test]
-    fn test_process_builder() {
-        let process = ProcessBuilder::new("/usr/bin/test")
-            .arg("--verbose")
-            .env("TEST", "value")
-            .build();
-
-        assert_eq!(process.config().executable, PathBuf::from("/usr/bin/test"));
-        assert_eq!(process.config().args, vec!["--server", "--verbose"]);
-    }
 }

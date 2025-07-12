@@ -102,15 +102,6 @@ impl IPCServer {
         }
     }
 
-    /// Get a reference to the event sender for setting up hotkey callbacks.
-    ///
-    /// This is used with `create_event_forwarder` to create callbacks that
-    /// forward hotkey events to the connected IPC client.
-    pub fn event_sender(
-        &self,
-    ) -> Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>> {
-        self.event_sender.clone()
-    }
 
     /// Run the IPC server, accepting a single client connection.
     ///
@@ -438,7 +429,7 @@ impl IPCConnection {
 /// Use this with the event_sender from an IPCServer to bridge hotkey
 /// events to the IPC client. The callback is thread-safe and can be cloned
 /// for multiple hotkeys.
-pub fn create_event_forwarder(
+pub(crate) fn create_event_forwarder(
     event_sender: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
 ) -> impl Fn(&str) + Send + Sync + Clone + 'static {
     move |identifier| {
