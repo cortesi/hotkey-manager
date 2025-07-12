@@ -72,6 +72,11 @@ impl<'de> Deserialize<'de> for Mode {
 }
 
 impl Mode {
+    /// Create a Mode from a RON string
+    pub fn from_ron(ron_str: &str) -> Result<Self, String> {
+        ron::from_str(ron_str).map_err(|e| format!("Failed to parse RON: {e}"))
+    }
+
     /// Get the action and attributes associated with a key
     pub fn get_with_attrs(&self, key: &str) -> Option<(&Action, &Attrs)> {
         self.keys
@@ -103,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_mode() {
-        let mode: Mode = ron::from_str(
+        let mode = Mode::from_ron(
             r#"[
             ("q", "Exit", exit),
             ("s", "Shell", shell("echo hello")),
@@ -119,6 +124,42 @@ mod tests {
     }
 
     #[test]
+    fn test_from_ron() {
+        let ron_str = r#"[
+            ("q", "Exit", exit),
+            ("s", "Shell", shell("echo hello")),
+            ("m", "Submenu", mode([
+                ("x", "Exit submenu", pop),
+            ])),
+        ]"#;
+
+        let mode = Mode::from_ron(ron_str).unwrap();
+
+        assert!(matches!(mode.get_with_attrs("q"), Some((Action::Exit, _))));
+        assert!(
+            matches!(mode.get_with_attrs("s"), Some((Action::Shell(cmd), _)) if cmd == "echo hello")
+        );
+
+        // Test nested mode
+        if let Some((Action::Mode(nested), _)) = mode.get_with_attrs("m") {
+            assert!(matches!(nested.get_with_attrs("x"), Some((Action::Pop, _))));
+        } else {
+            panic!("Expected nested mode");
+        }
+    }
+
+    #[test]
+    fn test_from_ron_error() {
+        let invalid_ron = r#"[
+            ("q", "Exit", invalid_action),
+        ]"#;
+
+        let result = Mode::from_ron(invalid_ron);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to parse RON"));
+    }
+
+    #[test]
     fn test_nested_modes() {
         let ron_text = r#"[
             ("q", "Exit", exit),
@@ -128,7 +169,7 @@ mod tests {
             ])),
         ]"#;
 
-        let main_mode: Mode = ron::from_str(ron_text).unwrap();
+        let main_mode = Mode::from_ron(ron_text).unwrap();
 
         assert!(matches!(
             main_mode.get_with_attrs("q"),
@@ -146,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_mode_serialization() {
-        let mode: Mode = ron::from_str(
+        let mode = Mode::from_ron(
             r#"[
             ("q", "Exit", exit),
             ("s", "Shell", shell("echo hello")),
@@ -162,7 +203,7 @@ mod tests {
         let ron_string = ron::to_string(&mode).unwrap();
 
         // Deserialize from RON
-        let deserialized: Mode = ron::from_str(&ron_string).unwrap();
+        let deserialized = Mode::from_ron(&ron_string).unwrap();
 
         // Verify they are equal
         assert_eq!(mode, deserialized);
@@ -311,7 +352,7 @@ mod tests {
         };
 
         // Deserialize from RON text
-        let deserialized: Mode = ron::from_str(ron_text).unwrap();
+        let deserialized = Mode::from_ron(ron_text).unwrap();
 
         // Compare the structures
         assert_eq!(deserialized, expected);
@@ -320,7 +361,7 @@ mod tests {
     #[test]
     fn test_validate_valid_keys() {
         // Simple valid keys
-        let mode: Mode = ron::from_str(
+        let mode = Mode::from_ron(
             r#"[
             ("ctrl+a", "Select All", shell("select all")),
             ("cmd+c", "Copy", shell("copy")),
@@ -331,7 +372,7 @@ mod tests {
         assert!(mode.validate().is_ok());
 
         // Nested modes with valid keys
-        let main_mode: Mode = ron::from_str(
+        let main_mode = Mode::from_ron(
             r#"[
             ("cmd+f", "File", mode([
                 ("ctrl+s", "Save", shell("save")),
@@ -347,7 +388,7 @@ mod tests {
     #[test]
     fn test_validate_invalid_keys() {
         // Invalid key at root level
-        let mode: Mode = ron::from_str(
+        let mode = Mode::from_ron(
             r#"[
             ("ctrl+a", "Valid", shell("valid")),
             ("invalid key", "Invalid", shell("invalid")),
@@ -358,7 +399,7 @@ mod tests {
         assert!(err.contains("Invalid key 'invalid key' (Invalid)"));
 
         // Invalid key in nested mode
-        let main_mode: Mode = ron::from_str(
+        let main_mode = Mode::from_ron(
             r#"[
             ("cmd+f", "File", mode([
                 ("ctrl+s", "Save", shell("save")),
@@ -377,7 +418,7 @@ mod tests {
     #[test]
     fn test_validate_deeply_nested() {
         // Create a deeply nested mode structure
-        let level1: Mode = ron::from_str(
+        let level1 = Mode::from_ron(
             r#"[
             ("ctrl+1", "Level 1", mode([
                 ("ctrl+2", "Level 2", mode([
@@ -402,7 +443,7 @@ mod tests {
             ("c", "Action C", shell("echo c"), (noexit: false)),
         ]"#;
 
-        let mode: Mode = ron::from_str(ron_text).unwrap();
+        let mode = Mode::from_ron(ron_text).unwrap();
 
         // Check action a has default attrs
         let (action_a, attrs_a) = mode.get_with_attrs("a").unwrap();
