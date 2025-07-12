@@ -7,24 +7,27 @@ use tao::event::Event;
 use tao::event_loop::{ControlFlow, EventLoop};
 use tracing::{debug, error, info, trace};
 
-/// Configuration for a hotkey server
-#[derive(Debug, Clone)]
-pub struct ServerConfig {
-    /// Socket path for IPC communication
-    pub socket_path: String,
+/// A hotkey server that manages the event loop and IPC communication
+pub struct HotkeyServer {
+    socket_path: String,
 }
 
-impl Default for ServerConfig {
+impl Default for HotkeyServer {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HotkeyServer {
+    /// Create a new hotkey server with default configuration
+    pub fn new() -> Self {
         Self {
             socket_path: DEFAULT_SOCKET_PATH.to_string(),
         }
     }
-}
 
-impl ServerConfig {
-    /// Create a new server configuration with the given socket path
-    pub fn new(socket_path: impl Into<String>) -> Self {
+    /// Create a new hotkey server with the given socket path
+    pub fn new_with_socket(socket_path: impl Into<String>) -> Self {
         Self {
             socket_path: socket_path.into(),
         }
@@ -34,24 +37,6 @@ impl ServerConfig {
     pub fn with_socket_path(mut self, path: impl Into<String>) -> Self {
         self.socket_path = path.into();
         self
-    }
-}
-
-/// A hotkey server that manages the event loop and IPC communication
-pub struct HotkeyServer {
-    config: ServerConfig,
-}
-
-impl Default for HotkeyServer {
-    fn default() -> Self {
-        Self::new(ServerConfig::default())
-    }
-}
-
-impl HotkeyServer {
-    /// Create a new hotkey server with the given configuration
-    pub fn new(config: ServerConfig) -> Self {
-        Self { config }
     }
 
     /// Run the server
@@ -67,10 +52,7 @@ impl HotkeyServer {
     /// - An error occurs in the IPC server
     /// - The event loop is explicitly terminated
     pub fn run(self) -> Result<()> {
-        info!(
-            "Starting hotkey server on socket: {}",
-            self.config.socket_path
-        );
+        info!("Starting hotkey server on socket: {}", self.socket_path);
 
         // Create the tao event loop (must be on main thread for macOS)
         let event_loop = EventLoop::new();
@@ -82,7 +64,7 @@ impl HotkeyServer {
         info!("HotkeyManager created successfully");
 
         // Create the IPC server
-        let ipc_server = IPCServer::new(&self.config.socket_path, manager);
+        let ipc_server = IPCServer::new(&self.socket_path, manager);
 
         // Create shutdown coordination
         let shutdown_requested = Arc::new(AtomicBool::new(false));
@@ -147,43 +129,31 @@ impl HotkeyServer {
     }
 }
 
-
-/// Convenience function to run a hotkey server with default settings
-///
-/// This is the simplest way to start a hotkey server.
-pub fn run_server() -> Result<()> {
-    HotkeyServer::default().run()
-}
-
-/// Convenience function to run a hotkey server with a custom socket path
-pub fn run_server_on(socket_path: impl Into<String>) -> Result<()> {
-    HotkeyServer::new(ServerConfig::new(socket_path)).run()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_server_config_with_methods() {
+    fn test_server_with_methods() {
         // Test with_socket_path
-        let config = ServerConfig::default().with_socket_path("/custom/path.sock");
-        assert_eq!(config.socket_path, "/custom/path.sock");
+        let server = HotkeyServer::new().with_socket_path("/custom/path.sock");
+        assert_eq!(server.socket_path, "/custom/path.sock");
 
-        // Test chaining from new
-        let config = ServerConfig::new("/initial/path.sock").with_socket_path("/another/path.sock");
-        assert_eq!(config.socket_path, "/another/path.sock");
+        // Test chaining from new_with_socket
+        let server = HotkeyServer::new_with_socket("/initial/path.sock")
+            .with_socket_path("/another/path.sock");
+        assert_eq!(server.socket_path, "/another/path.sock");
     }
 
     #[test]
-    fn test_server_config_new() {
-        let config = ServerConfig::new("/test/path.sock");
-        assert_eq!(config.socket_path, "/test/path.sock");
+    fn test_server_new_with_socket() {
+        let server = HotkeyServer::new_with_socket("/test/path.sock");
+        assert_eq!(server.socket_path, "/test/path.sock");
     }
 
     #[test]
-    fn test_server_config_default() {
-        let config = ServerConfig::default();
-        assert_eq!(config.socket_path, DEFAULT_SOCKET_PATH);
+    fn test_server_default() {
+        let server = HotkeyServer::default();
+        assert_eq!(server.socket_path, DEFAULT_SOCKET_PATH);
     }
 }
