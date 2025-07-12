@@ -166,16 +166,11 @@ impl Drop for ServerProcess {
     fn drop(&mut self) {
         if self.is_running() {
             warn!("ServerProcess dropped while still running, attempting to stop");
-            // Block on stopping the process
-            let runtime = tokio::runtime::Handle::try_current();
-            if let Ok(handle) = runtime {
-                let _ = handle.block_on(self.stop());
-            } else {
-                // Fallback to synchronous kill if no runtime
-                if let Some(mut child) = self.child.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
+            // Always use synchronous kill to avoid runtime issues
+            if let Some(mut child) = self.child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+                self.is_running.store(false, Ordering::SeqCst);
             }
         }
     }

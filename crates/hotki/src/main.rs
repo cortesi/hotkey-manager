@@ -156,6 +156,14 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
         tokio::select! {
             _ = async {
                 loop {
+                    // Print available keys before each event
+                    println!("\nCurrent mode (depth: {})", state.depth());
+                    println!("Available keys:");
+                    for (key, desc) in state.mode().keys() {
+                        println!("  {} - {}", key, desc);
+                    }
+                    println!("\nWaiting for hotkey press...");
+
                     match connection.recv_event().await {
                         Ok(IPCResponse::HotkeyTriggered { identifier }) => {
                             debug!("Received hotkey event: {}", identifier);
@@ -172,11 +180,11 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
                                     Action::Shell(cmd) => {
                                         println!("Shell command: {}", cmd);
                                     }
-                                    Action::Mode(_) => {
+                                    Action::Mode(_mode) => {
                                         println!("Mode change (would rebind keys)");
                                     }
                                     Action::Pop => {
-                                        println!("Pop (would rebind to previous mode)");
+                                        println!("Pop to previous mode (would rebind keys)");
                                     }
                                 }
                             } else {
@@ -209,9 +217,12 @@ async fn client_main(config_path: Option<std::path::PathBuf>) -> Result<()> {
     .await;
 
     info!("\nShutting down...");
-    client
-        .disconnect(true)
-        .await
-        .context("Failed to disconnect client")?;
+    // Try to disconnect gracefully, but don't fail if the connection is already broken
+    if let Err(e) = client.disconnect(true).await {
+        debug!(
+            "Error during disconnect (this is expected if server was killed): {}",
+            e
+        );
+    }
     result
 }
