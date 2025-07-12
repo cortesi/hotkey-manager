@@ -88,6 +88,32 @@ impl From<&Key> for HotKey {
     }
 }
 
+impl From<HotKey> for Key {
+    fn from(hotkey: HotKey) -> Self {
+        Key {
+            modifiers: if hotkey.mods.is_empty() {
+                None
+            } else {
+                Some(hotkey.mods)
+            },
+            code: hotkey.key,
+        }
+    }
+}
+
+impl From<&HotKey> for Key {
+    fn from(hotkey: &HotKey) -> Self {
+        Key {
+            modifiers: if hotkey.mods.is_empty() {
+                None
+            } else {
+                Some(hotkey.mods)
+            },
+            code: hotkey.key,
+        }
+    }
+}
+
 impl TryFrom<&str> for Key {
     type Error = Error;
 
@@ -401,6 +427,26 @@ mod tests {
         let hotkey = key.to_hotkey();
         assert_eq!(hotkey.mods, Modifiers::CONTROL);
         assert_eq!(hotkey.key, Code::KeyA);
+    }
+
+    #[test]
+    fn test_from_hotkey() {
+        let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyN);
+        let key: Key = hotkey.into();
+        assert_eq!(key.modifiers, Some(Modifiers::CONTROL | Modifiers::SHIFT));
+        assert_eq!(key.code, Code::KeyN);
+
+        // Test with no modifiers
+        let hotkey = HotKey::new(None, Code::Space);
+        let key: Key = hotkey.into();
+        assert_eq!(key.modifiers, None);
+        assert_eq!(key.code, Code::Space);
+
+        // Test from reference
+        let hotkey = HotKey::new(Some(Modifiers::ALT), Code::Tab);
+        let key: Key = (&hotkey).into();
+        assert_eq!(key.modifiers, Some(Modifiers::ALT));
+        assert_eq!(key.code, Code::Tab);
     }
 
     #[test]

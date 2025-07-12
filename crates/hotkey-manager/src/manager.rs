@@ -239,19 +239,6 @@ impl HotkeyManager {
         Ok(())
     }
 
-    /// Returns a list of all registered hotkeys.
-    ///
-    /// Each entry contains the hotkey ID, identifier, and a string representation of the hotkey.
-    pub fn list_hotkeys(&self) -> Vec<(u32, String, String)> {
-        trace!("Listing all hotkeys");
-        let hotkeys = self.hotkeys.lock().unwrap();
-        let result = hotkeys
-            .iter()
-            .map(|(id, entry)| (*id, entry.identifier.clone(), format_hotkey(&entry.hotkey)))
-            .collect::<Vec<_>>();
-        debug!("Found {} registered hotkeys", result.len());
-        result
-    }
 
     /// Convenience method to bind multiple hotkeys with a single callback that receives the identifier.
     ///
@@ -302,9 +289,4 @@ impl Drop for HotkeyManager {
             error!("Failed to unbind all hotkeys during drop: {:?}", e);
         }
     }
-}
-
-fn format_hotkey(hotkey: &HotKey) -> String {
-    // This is a simplified formatter - could be expanded in the future
-    format!("{hotkey:?}")
 }

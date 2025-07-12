@@ -121,23 +121,6 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run main logic
     let result = async {
-        // List hotkeys before binding
-        println!("Listing hotkeys before rebind...");
-        match connection.list_hotkeys().await {
-            Ok(hotkeys) => {
-                if hotkeys.is_empty() {
-                    println!("No hotkeys registered.");
-                } else {
-                    println!("Registered hotkeys:");
-                    for (id, identifier, description) in hotkeys {
-                        println!(
-                            "  ID: {id}, Identifier: {identifier}, Description: {description}"
-                        );
-                    }
-                }
-            }
-            Err(e) => error!("Failed to list hotkeys: {e}"),
-        }
         let keys = vec![("quit".to_string(), Key::parse("q").unwrap())];
 
         match connection.rebind(&keys).await {
@@ -150,24 +133,6 @@ async fn client_main() -> Result<(), Box<dyn std::error::Error>> {
                 // Error already logged above
                 return Err(e.into());
             }
-        }
-
-        // List hotkeys after binding
-        println!("\nListing hotkeys after rebind...");
-        match connection.list_hotkeys().await {
-            Ok(hotkeys) => {
-                if hotkeys.is_empty() {
-                    println!("No hotkeys registered.");
-                } else {
-                    println!("Registered hotkeys:");
-                    for (id, identifier, description) in hotkeys {
-                        println!(
-                            "  ID: {id}, Identifier: {identifier}, Description: {description}"
-                        );
-                    }
-                }
-            }
-            Err(e) => error!("Failed to list hotkeys: {e}"),
         }
 
         // Wait for quit event

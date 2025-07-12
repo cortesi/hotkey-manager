@@ -39,9 +39,6 @@ use tracing::{debug, error, info, trace, warn};
 /// configured when creating the HotkeyManager before starting the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IPCRequest {
-    /// Request a list of all currently registered hotkeys.
-    /// Returns hotkey ID, identifier, and description for each hotkey.
-    ListHotkeys,
     /// Request the server to shut down gracefully.
     /// In single-client mode, the server will also shut down when
     /// the client disconnects without sending this command.
@@ -254,14 +251,6 @@ async fn handle_request(
     event_sender: &Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<IPCResponse>>>>,
 ) -> IPCResponse {
     match request {
-        IPCRequest::ListHotkeys => {
-            let hotkeys = manager.list_hotkeys();
-            IPCResponse::Success {
-                message: format!("Found {} hotkeys", hotkeys.len()),
-                data: Some(serde_json::json!(hotkeys)),
-            }
-        }
-
         IPCRequest::Shutdown => IPCResponse::Success {
             message: "Shutting down".to_string(),
             data: None,
@@ -383,27 +372,6 @@ impl IPCConnection {
         Ok(response)
     }
 
-    /// Request a list of all registered hotkeys from the server.
-    ///
-    /// Returns a vector of tuples containing:
-    /// - Hotkey ID (unique identifier)
-    /// - Identifier (user-provided string identifier)
-    /// - Description (string representation of the hotkey combination)
-    pub async fn list_hotkeys(&mut self) -> Result<Vec<(u32, String, String)>> {
-        self.send_request(&IPCRequest::ListHotkeys).await?;
-
-        match self.recv_response().await? {
-            IPCResponse::Success { data, .. } => {
-                if let Some(data) = data {
-                    Ok(serde_json::from_value(data)?)
-                } else {
-                    Ok(vec![])
-                }
-            }
-            IPCResponse::Error { message } => Err(Error::Ipc(message)),
-            _ => Err(Error::Ipc("Unexpected response".to_string())),
-        }
-    }
 
     /// Send a shutdown request to the server.
     ///
