@@ -29,6 +29,12 @@ impl ServerConfig {
             socket_path: socket_path.into(),
         }
     }
+
+    /// Set the socket path for IPC communication
+    pub fn with_socket_path(mut self, path: impl Into<String>) -> Self {
+        self.socket_path = path.into();
+        self
+    }
 }
 
 /// A hotkey server that manages the event loop and IPC communication
@@ -141,47 +147,43 @@ impl HotkeyServer {
     }
 }
 
-/// Builder for creating a HotkeyServer with fluent API
-#[derive(Default)]
-pub struct ServerBuilder {
-    config: ServerConfig,
-}
-
-impl ServerBuilder {
-    /// Create a new server builder with the given socket path
-    pub fn new(socket_path: impl Into<String>) -> Self {
-        Self {
-            config: ServerConfig::new(socket_path),
-        }
-    }
-
-    /// Build the HotkeyServer
-    pub fn build(self) -> HotkeyServer {
-        HotkeyServer::new(self.config)
-    }
-
-    /// Build and run the HotkeyServer
-    pub fn run(self) -> Result<()> {
-        self.build().run()
-    }
-}
 
 /// Convenience function to run a hotkey server with default settings
 ///
-/// This is the simplest way to start a hotkey server:
-/// ```no_run
-/// hotkey_manager::run_server()?;
-/// ```
+/// This is the simplest way to start a hotkey server.
 pub fn run_server() -> Result<()> {
     HotkeyServer::default().run()
 }
 
 /// Convenience function to run a hotkey server with a custom socket path
-///
-/// Example:
-/// ```no_run
-/// hotkey_manager::run_server_on("/tmp/my-hotkeys.sock")?;
-/// ```
 pub fn run_server_on(socket_path: impl Into<String>) -> Result<()> {
     HotkeyServer::new(ServerConfig::new(socket_path)).run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_server_config_with_methods() {
+        // Test with_socket_path
+        let config = ServerConfig::default().with_socket_path("/custom/path.sock");
+        assert_eq!(config.socket_path, "/custom/path.sock");
+
+        // Test chaining from new
+        let config = ServerConfig::new("/initial/path.sock").with_socket_path("/another/path.sock");
+        assert_eq!(config.socket_path, "/another/path.sock");
+    }
+
+    #[test]
+    fn test_server_config_new() {
+        let config = ServerConfig::new("/test/path.sock");
+        assert_eq!(config.socket_path, "/test/path.sock");
+    }
+
+    #[test]
+    fn test_server_config_default() {
+        let config = ServerConfig::default();
+        assert_eq!(config.socket_path, "/tmp/hotkey-manager.sock");
+    }
 }

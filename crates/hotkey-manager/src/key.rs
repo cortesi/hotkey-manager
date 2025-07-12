@@ -381,16 +381,16 @@ mod tests {
 
         let key = Key::parse("cmd+shift+n").unwrap();
         assert_eq!(key.to_string(), "shift+cmd+n");
-        
+
         let key = Key::parse("f1").unwrap();
         assert_eq!(key.to_string(), "f1");
-        
+
         let key = Key::parse("ctrl+1").unwrap();
         assert_eq!(key.to_string(), "ctrl+1");
-        
+
         let key = Key::parse("alt+tab").unwrap();
         assert_eq!(key.to_string(), "alt+tab");
-        
+
         let key = Key::parse("cmd+space").unwrap();
         assert_eq!(key.to_string(), "cmd+space");
     }

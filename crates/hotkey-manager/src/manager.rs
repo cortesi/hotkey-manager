@@ -99,10 +99,7 @@ impl HotkeyManager {
             }
         });
 
-        let result = Self {
-            manager,
-            hotkeys,
-        };
+        let result = Self { manager, hotkeys };
         info!("HotkeyManager initialized successfully");
         Ok(result)
     }
