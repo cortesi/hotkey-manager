@@ -123,8 +123,7 @@ impl fmt::Display for Key {
             }
         }
 
-        let code_str = format!("{:?}", self.code).to_lowercase();
-        parts.push(code_str.as_str());
+        parts.push(format_code(&self.code));
         write!(f, "{}", parts.join("+"))
     }
 }
@@ -230,6 +229,100 @@ fn parse_code(s: &str) -> Result<Code> {
     }
 }
 
+/// Format a Code enum value into a user-friendly string
+fn format_code(code: &Code) -> &'static str {
+    match code {
+        // Letters
+        Code::KeyA => "a",
+        Code::KeyB => "b",
+        Code::KeyC => "c",
+        Code::KeyD => "d",
+        Code::KeyE => "e",
+        Code::KeyF => "f",
+        Code::KeyG => "g",
+        Code::KeyH => "h",
+        Code::KeyI => "i",
+        Code::KeyJ => "j",
+        Code::KeyK => "k",
+        Code::KeyL => "l",
+        Code::KeyM => "m",
+        Code::KeyN => "n",
+        Code::KeyO => "o",
+        Code::KeyP => "p",
+        Code::KeyQ => "q",
+        Code::KeyR => "r",
+        Code::KeyS => "s",
+        Code::KeyT => "t",
+        Code::KeyU => "u",
+        Code::KeyV => "v",
+        Code::KeyW => "w",
+        Code::KeyX => "x",
+        Code::KeyY => "y",
+        Code::KeyZ => "z",
+
+        // Numbers
+        Code::Digit0 => "0",
+        Code::Digit1 => "1",
+        Code::Digit2 => "2",
+        Code::Digit3 => "3",
+        Code::Digit4 => "4",
+        Code::Digit5 => "5",
+        Code::Digit6 => "6",
+        Code::Digit7 => "7",
+        Code::Digit8 => "8",
+        Code::Digit9 => "9",
+
+        // Function keys
+        Code::F1 => "f1",
+        Code::F2 => "f2",
+        Code::F3 => "f3",
+        Code::F4 => "f4",
+        Code::F5 => "f5",
+        Code::F6 => "f6",
+        Code::F7 => "f7",
+        Code::F8 => "f8",
+        Code::F9 => "f9",
+        Code::F10 => "f10",
+        Code::F11 => "f11",
+        Code::F12 => "f12",
+
+        // Special keys
+        Code::Escape => "escape",
+        Code::Space => "space",
+        Code::Enter => "enter",
+        Code::Tab => "tab",
+        Code::Backspace => "backspace",
+        Code::Delete => "delete",
+        Code::Insert => "insert",
+        Code::Home => "home",
+        Code::End => "end",
+        Code::PageUp => "pageup",
+        Code::PageDown => "pagedown",
+
+        // Arrow keys
+        Code::ArrowLeft => "left",
+        Code::ArrowRight => "right",
+        Code::ArrowUp => "up",
+        Code::ArrowDown => "down",
+
+        // Punctuation and symbols
+        Code::Minus => "minus",
+        Code::Equal => "equal",
+        Code::BracketLeft => "bracketleft",
+        Code::BracketRight => "bracketright",
+        Code::Backslash => "backslash",
+        Code::Semicolon => "semicolon",
+        Code::Quote => "quote",
+        Code::Comma => "comma",
+        Code::Period => "period",
+        Code::Slash => "slash",
+        Code::Backquote => "backquote",
+
+        // Fallback for any unhandled codes
+        _ => "unknown",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,10 +377,22 @@ mod tests {
     #[test]
     fn test_display() {
         let key = Key::parse("ctrl+a").unwrap();
-        assert_eq!(key.to_string(), "ctrl+keya");
+        assert_eq!(key.to_string(), "ctrl+a");
 
         let key = Key::parse("cmd+shift+n").unwrap();
-        assert_eq!(key.to_string(), "shift+cmd+keyn");
+        assert_eq!(key.to_string(), "shift+cmd+n");
+        
+        let key = Key::parse("f1").unwrap();
+        assert_eq!(key.to_string(), "f1");
+        
+        let key = Key::parse("ctrl+1").unwrap();
+        assert_eq!(key.to_string(), "ctrl+1");
+        
+        let key = Key::parse("alt+tab").unwrap();
+        assert_eq!(key.to_string(), "alt+tab");
+        
+        let key = Key::parse("cmd+space").unwrap();
+        assert_eq!(key.to_string(), "cmd+space");
     }
 
     #[test]

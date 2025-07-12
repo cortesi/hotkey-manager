@@ -5,7 +5,7 @@ authors = ["Aldo Cortesi <aldo@corte.si>"]
 description = "Global hotkey manager"
 license = "MIT"
 repository = "https://github.com/cortesi/hotkey-manager"
-keywords = ["shotcuts", "hotkey"]
+keywords = ["shortcuts", "shortcut", "hotkey"]
 
 [workspace]
 resolver = "2"
