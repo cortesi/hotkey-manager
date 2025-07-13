@@ -25,7 +25,7 @@ enum LogLevel {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "hotki")]
+#[command(name = "hotki-cli")]
 #[command(about = "Hotkey manager client and server", long_about = None)]
 struct Args {
     /// Path to RON mode definition file
@@ -66,17 +66,17 @@ fn main() -> Result<()> {
             .with(
                 EnvFilter::from_default_env()
                     .add_directive(format!("hotkey_manager={log_level}").parse()?)
-                    .add_directive(format!("hotki={log_level}").parse()?),
+                    .add_directive(format!("hotki_cli={log_level}").parse()?),
             )
             .init();
     }
 
     if args.server {
-        info!("Starting hotki server");
+        info!("Starting hotki-cli server");
         Server::new().run()?;
         Ok(())
     } else {
-        info!("Starting hotki client");
+        info!("Starting hotki-cli client");
         let runtime = tokio::runtime::Runtime::new().context("Failed to create Tokio runtime")?;
         runtime.block_on(client_main(args.config))
     }

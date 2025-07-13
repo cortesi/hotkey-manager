@@ -1,5 +1,5 @@
 [package]
-name = "hotki"
+name = "hotki-cli"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

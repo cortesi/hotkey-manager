@@ -1,6 +1,6 @@
 [
     ("q", "Quit", exit),
-    ("h", "Say Hello", shell("echo 'Hello from hotki!'")),
+    ("h", "Say Hello", shell("echo 'Hello from hotki-cli!'")),
     ("t", "Show Time", shell("date")),
     ("g", "Git Menu", mode([
         ("s", "Git Status", shell("git status")),
