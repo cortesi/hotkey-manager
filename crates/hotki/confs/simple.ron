@@ -1,8 +1,12 @@
 [
     ("a", "action", shell("echo a")),
-    ("m", "mode", mode([
+    ("m", "mode m", mode([
          ("i", "inner", shell("echo inner")),
          ("r", "pop", pop)
     ])),
+    ("n", "mode n", mode([
+         ("a", "inner a", shell("echo inner a")),
+    ])),
     ("q", "quit", exit),
+    ("esc", "pop", pop, (global:true)),
 ]

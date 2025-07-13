@@ -12,7 +12,7 @@ use tokio::{signal, time::sleep};
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use hotkey_manager::{Client, IPCConnection, IPCResponse, Server};
+use hotkey_manager::{Client, IPCConnection, IPCResponse, Key, Server};
 use keymode::{Mode, State};
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -86,15 +86,18 @@ fn main() -> Result<()> {
 async fn process_hotkey_events(connection: &mut IPCConnection, state: &mut State) -> Result<bool> {
     // Rebind keys for current mode
     let keys = state.keys();
+    let key_refs: Vec<Key> = keys.iter().map(|(k, _, _)| k.clone()).collect();
     connection
-        .rebind(&keys)
+        .rebind(&key_refs)
         .await
         .context("Failed to rebind hotkeys")?;
 
-    // Print available keys before each event
-    println!("Available keys:");
-    for (key, desc) in state.mode().keys() {
-        println!("  {key} - {desc}");
+    // Print available keys before each event (excluding hidden ones)
+    println!("\n\nAvailable keys:");
+    for (key, desc, attrs) in &keys {
+        if !attrs.hide {
+            println!("  {key} - {desc}");
+        }
     }
 
     match connection.recv_event().await {

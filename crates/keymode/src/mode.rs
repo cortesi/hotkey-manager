@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 pub struct Attrs {
     #[serde(default)]
     pub noexit: bool,
+    #[serde(default)]
+    pub global: bool,
+    #[serde(default)]
+    pub hide: bool,
 }
 
 /// Actions that can be triggered by hotkeys
@@ -118,6 +122,13 @@ impl Mode {
     /// Get all Key objects in this mode
     pub fn key_objects(&self) -> impl Iterator<Item = &Key> + '_ {
         self.keys.iter().map(|(k, _, _, _)| k)
+    }
+
+    /// Get all keys with their names and attributes
+    pub fn keys_with_attrs(&self) -> impl Iterator<Item = (Key, String, Attrs)> + '_ {
+        self.keys
+            .iter()
+            .map(|(k, desc, _, attrs)| (k.clone(), desc.clone(), attrs.clone()))
     }
 }
 
@@ -304,7 +315,11 @@ mod tests {
                     key("l"),
                     "Log".to_string(),
                     Action::shell("git log"),
-                    Attrs { noexit: true },
+                    Attrs {
+                        noexit: true,
+                        global: false,
+                        hide: false,
+                    },
                 ),
                 (
                     key("p"),
@@ -334,7 +349,11 @@ mod tests {
                     key("t"),
                     "Tree".to_string(),
                     Action::shell("tree"),
-                    Attrs { noexit: true },
+                    Attrs {
+                        noexit: true,
+                        global: false,
+                        hide: false,
+                    },
                 ),
                 (key("q"), "Back".to_string(), Action::Pop, Attrs::default()),
             ],
