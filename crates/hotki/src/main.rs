@@ -13,7 +13,7 @@ use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use hotkey_manager::{Client, IPCConnection, IPCResponse, Server};
-use keymode::{Action, Mode, State};
+use keymode::{Mode, State};
 
 #[derive(Debug, Clone, ValueEnum)]
 enum LogLevel {
@@ -92,30 +92,33 @@ async fn process_hotkey_events(connection: &mut IPCConnection, state: &mut State
         .context("Failed to rebind hotkeys")?;
 
     // Print available keys before each event
-    println!("\nCurrent mode (depth: {})", state.depth());
     println!("Available keys:");
     for (key, desc) in state.mode().keys() {
         println!("  {key} - {desc}");
     }
-    println!("\nWaiting for hotkey press...");
 
     match connection.recv_event().await {
         Ok(IPCResponse::HotkeyTriggered(key)) => {
             debug!("Received hotkey event: {}", key);
-            if let Some(action) = state.key(&key) {
-                info!("Action triggered: {:?}", action);
-                match action {
-                    Action::Exit => {
+            match state.handle_key(&key) {
+                Ok(handled) => {
+                    // Display user message if present
+                    if !handled.user.is_empty() {
+                        println!("{}", handled.user);
+                    }
+                    // Display warning if present
+                    if !handled.warn.is_empty() {
+                        eprintln!("Warning: {}", handled.warn);
+                    }
+                    // Check if we should exit
+                    if handled.exit {
                         info!("Exit action - shutting down...");
                         return Ok(true); // Signal to exit
                     }
-                    Action::Shell(cmd) => {
-                        println!("Shell command: {cmd}");
-                    }
-                    // These cases should never happen since state.key() returns None for them
-                    Action::Mode(_) | Action::Pop => {
-                        unreachable!("Mode/Pop actions should return None from state.key()");
-                    }
+                }
+                Err(e) => {
+                    error!("Error handling key: {}", e);
+                    return Err(anyhow::anyhow!("Error handling key: {}", e));
                 }
             }
         }
