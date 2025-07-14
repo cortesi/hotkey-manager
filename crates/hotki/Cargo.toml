@@ -10,7 +10,7 @@ hotkey-manager = { path = "../hotkey-manager" }
 keymode = { path = "../keymode"}
 
 dioxus = { git = "https://github.com/DioxusLabs/dioxus", branch = "main", features = [] }
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "sync", "rt", "macros"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25"

@@ -5,60 +5,107 @@ mod settings;
 use dioxus::desktop::trayicon::menu::{Menu, MenuItem};
 use dioxus::desktop::{use_muda_event_handler, use_window, Config};
 use dioxus::prelude::*;
-//use hotkey_manager::{Code, HotkeyManager, Modifiers};
-use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use hotkey_manager::{Client, IPCResponse, Key, Server};
+use keymode::{Mode, State};
+use std::{env, fs};
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
-// Global static for the HotkeyManager
-static HOTKEY_MANAGER: OnceLock<Arc<Mutex<HotkeyManager>>> = OnceLock::new();
-
 fn main() {
-    // Configure the app as a background agent before anything else
-    platform_specific::configure_as_agent_app();
+    // Check for command line arguments
+    let args: Vec<String> = env::args().collect();
 
-    // Create HotkeyManager on the main thread
-    let hotkey_manager = Arc::new(Mutex::new(
-        HotkeyManager::new().expect("Failed to create hotkey manager"),
-    ));
+    // Check for help flag
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("Hotkey Manager GUI");
+        println!();
+        println!("Usage: {} [OPTIONS]", args[0]);
+        println!();
+        println!("Options:");
+        println!("  --server    Run as hotkey server (no GUI)");
+        println!("  --help, -h  Show this help message");
+        println!();
+        println!("Required environment variables:");
+        println!("  HOTKI_CONFIG    Path to RON configuration file");
+        println!();
+        println!("Example:");
+        println!("  HOTKI_CONFIG=/path/to/config.ron {} [OPTIONS]", args[0]);
+        std::process::exit(0);
+    }
 
-    // Store it in the global static
-    let _ = HOTKEY_MANAGER.set(hotkey_manager);
-
-    dioxus::LaunchBuilder::desktop()
-        .with_cfg(
-            Config::new()
-                .with_window(
-                    dioxus::desktop::WindowBuilder::new()
-                        .with_transparent(true)
-                        .with_visible(false)
-                        // Position window off-screen initially to prevent flicker
-                        .with_position(dioxus::desktop::LogicalPosition::new(-1000.0, -1000.0)),
-                )
-                .with_custom_head(
-                    r#"<style>
-                    #app { background: transparent; }
-                </style>"#
-                        .to_string(),
-                ),
-        )
-        .launch(App);
+    if args.iter().any(|arg| arg == "--server") {
+        // Run in server mode
+        println!("Starting hotkey server...");
+        if let Err(e) = Server::new().run() {
+            eprintln!("Failed to run server: {}", e);
+            std::process::exit(1);
+        }
+    } else {
+        // Run GUI mode
+        // Configure the app as a background agent before anything else
+        platform_specific::configure_as_agent_app();
+        dioxus::LaunchBuilder::desktop()
+            .with_cfg(
+                Config::new()
+                    .with_window(
+                        dioxus::desktop::WindowBuilder::new()
+                            .with_transparent(true)
+                            .with_visible(false)
+                            // Position window off-screen initially to prevent flicker
+                            .with_position(dioxus::desktop::LogicalPosition::new(-1000.0, -1000.0)),
+                    )
+                    .with_custom_head(
+                        r#"<style>
+                        #app { background: transparent; }
+                    </style>"#
+                            .to_string(),
+                    ),
+            )
+            .launch(App);
+    }
 }
 
 #[component]
 fn App() -> Element {
     let window = use_window();
-    let mut window_shown_intentionally = use_signal(|| false);
-    let hotkey_manager = HOTKEY_MANAGER
-        .get()
-        .expect("HotkeyManager not initialized")
-        .clone();
-    let mut hud_hotkey_id = use_signal(|| None::<u32>);
-    let hotkey_channel = use_signal(|| {
-        let (tx, rx) = mpsc::channel::<()>();
-        (Arc::new(tx), Arc::new(Mutex::new(rx)))
-    });
+
+    // Load config from environment variable (required)
+    let config_path = match env::var("HOTKI_CONFIG") {
+        Ok(path) => path,
+        Err(_) => {
+            eprintln!("Error: HOTKI_CONFIG environment variable not set");
+            eprintln!("Please set HOTKI_CONFIG to the path of your RON configuration file");
+            eprintln!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
+            std::process::exit(1);
+        }
+    };
+
+    let config_content = match fs::read_to_string(&config_path) {
+        Ok(content) => {
+            println!("Loaded config from: {}", config_path);
+            content
+        }
+        Err(e) => {
+            eprintln!("Failed to read config file '{}': {}", config_path, e);
+            std::process::exit(1);
+        }
+    };
+
+    // Parse the config
+    let mode = match Mode::from_ron(&config_content) {
+        Ok(mode) => mode,
+        Err(e) => {
+            eprintln!("Failed to parse config file '{}': {}", config_path, e);
+            std::process::exit(1);
+        }
+    };
+
+    let keymode_state = use_signal(|| State::new(mode));
+    let current_keys = use_signal(Vec::<(Key, String, keymode::Attrs)>::new);
+    let error_msg = use_signal(String::new);
+    let is_connected = use_signal(|| false);
+    let should_rebind = use_signal(|| false);
 
     // Configure the HUD window properties
     use_effect({
@@ -74,7 +121,7 @@ fn App() -> Element {
             window.set_visible_on_all_workspaces(true);
             window.set_inner_size(dioxus::desktop::LogicalSize::new(400.0, 300.0));
 
-            // Position window at correct location off-screen
+            // Position window at correct location
             if let Some(monitor) = window.current_monitor() {
                 let screen_size = monitor.size();
                 let scale_factor = monitor.scale_factor();
@@ -98,30 +145,16 @@ fn App() -> Element {
         }
     });
 
-    // Monitor window visibility to prevent unintentional shows
-    use_effect({
-        let window = window.clone();
-        move || {
-            // If window becomes visible without being triggered intentionally, hide it
-            if window.is_visible() && !window_shown_intentionally() {
-                println!("Window shown unintentionally - hiding it");
-                window.set_visible(false);
-            }
-        }
-    });
-
     // Initialize system tray icon
     use_effect(move || {
         // Create a simple tray menu
         let tray_menu = Menu::new();
 
         // Add menu items with IDs to handle click events
-        let hud_item = MenuItem::with_id("show-hud", "Show HUD - Cmd+Shift+0", true, None);
         let settings_item = MenuItem::with_id("settings", "Settings", true, None);
         let separator = dioxus::desktop::trayicon::menu::PredefinedMenuItem::separator();
         let quit_item = MenuItem::with_id("quit", "Quit", true, None);
 
-        let _ = tray_menu.append(&hud_item);
         let _ = tray_menu.append(&settings_item);
         let _ = tray_menu.append(&separator);
         let _ = tray_menu.append(&quit_item);
@@ -136,25 +169,14 @@ fn App() -> Element {
         tray_icon.set_menu(Some(Box::new(tray_menu)));
 
         // Set tooltip
-        let _ = tray_icon.set_tooltip(Some("AI HUD - Press Cmd+Shift+0 to toggle"));
+        let _ = tray_icon.set_tooltip(Some("Hotkey Manager"));
 
         println!("Tray icon initialized");
     });
 
     // Handle tray menu click events
-    let window_menu = window.clone();
     use_muda_event_handler(move |event| {
         match event.id().as_ref() {
-            "show-hud" => {
-                println!("Show HUD menu clicked");
-                window_shown_intentionally.set(true);
-                // Toggle HUD visibility
-                if window_menu.is_visible() {
-                    window_menu.set_visible(false);
-                } else {
-                    window_menu.set_visible(true);
-                }
-            }
             "settings" => {
                 println!("Settings menu clicked");
                 // Create settings window with explicit window configuration
@@ -178,76 +200,119 @@ fn App() -> Element {
         }
     });
 
-    // Register global hotkey for HUD toggle
-    use_effect({
-        let manager = hotkey_manager.clone();
-        let (tx, _) = hotkey_channel();
-        let tx = tx.clone();
-        move || {
-            if let Ok(manager) = manager.lock() {
-                let tx_clone = tx.clone();
-                match manager.bind(
-                    "toggle_hud",
-                    Some(Modifiers::SUPER | Modifiers::SHIFT),
-                    Code::Digit0,
-                    move |identifier| {
-                        match identifier {
-                            "toggle_hud" => {
-                                // Send signal through channel
-                                let _ = tx_clone.send(());
+    // Connect to hotkey server and handle events
+    use_coroutine({
+        let window = window.clone();
+
+        move |_: UnboundedReceiver<()>| {
+            let window = window.clone();
+            let mut keymode_state = keymode_state;
+            let mut current_keys = current_keys;
+            let mut error_msg = error_msg;
+            let mut is_connected = is_connected;
+            let mut should_rebind = should_rebind;
+
+            async move {
+                // Try to connect to the server
+                match Client::new().with_auto_spawn_server().connect().await {
+                    Ok(mut client) => {
+                        println!("Connected to hotkey server");
+                        is_connected.set(true);
+
+                        // Get connection and use it
+                        match client.connection() {
+                            Ok(connection) => {
+                                // Initial key binding
+                                let keys = keymode_state.read().keys();
+                                current_keys.set(keys.clone());
+                                let key_refs: Vec<Key> =
+                                    keys.iter().map(|(k, _, _)| k.clone()).collect();
+
+                                if let Err(e) = connection.rebind(&key_refs).await {
+                                    error_msg.set(format!("Failed to bind keys: {e}"));
+                                }
+
+                                // Event loop
+                                loop {
+                                    // Check if we need to rebind keys
+                                    if *should_rebind.read() {
+                                        should_rebind.set(false);
+                                        let keys = keymode_state.read().keys();
+                                        let key_refs: Vec<Key> =
+                                            keys.iter().map(|(k, _, _)| k.clone()).collect();
+
+                                        if let Err(e) = connection.rebind(&key_refs).await {
+                                            error_msg.set(format!("Failed to rebind keys: {e}"));
+                                        }
+                                    }
+
+                                    // Process events with timeout
+                                    match tokio::time::timeout(
+                                        std::time::Duration::from_millis(100),
+                                        connection.recv_event(),
+                                    )
+                                    .await
+                                    {
+                                        Ok(Ok(IPCResponse::HotkeyTriggered(key))) => {
+                                            // Handle the key
+                                            let result = keymode_state.write().handle_key(&key);
+                                            match result {
+                                                Ok(handled) => {
+                                                    // Update current keys after handling
+                                                    let keys = keymode_state.read().keys();
+                                                    current_keys.set(keys.clone());
+
+                                                    // Request rebind
+                                                    should_rebind.set(true);
+
+                                                    // Check depth to show/hide window
+                                                    let depth = keymode_state.read().depth();
+                                                    let window_ref = window.clone();
+                                                    if depth > 0 && !window_ref.is_visible() {
+                                                        window_ref.set_visible(true);
+                                                    } else if depth == 0 && window_ref.is_visible()
+                                                    {
+                                                        window_ref.set_visible(false);
+                                                    }
+
+                                                    // Handle exit
+                                                    if handled.exit {
+                                                        let _ = client.disconnect(true).await;
+                                                        std::process::exit(0);
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    error_msg
+                                                        .set(format!("Error handling key: {e}"));
+                                                }
+                                            }
+                                        }
+                                        Ok(Ok(_)) => {}
+                                        Ok(Err(e)) => {
+                                            error_msg.set(format!("Connection error: {e}"));
+                                            is_connected.set(false);
+                                            break;
+                                        }
+                                        Err(_) => {
+                                            // Timeout, continue loop
+                                        }
+                                    }
+                                }
+
+                                // Disconnect on exit
+                                let _ = client.disconnect(true).await;
                             }
-                            _ => {
-                                eprintln!("Warning: Unrecognized hotkey identifier: {identifier}");
+                            Err(e) => {
+                                error_msg.set(format!("Failed to get connection: {e}"));
+                                is_connected.set(false);
                             }
                         }
-                    },
-                ) {
-                    Ok(id) => {
-                        hud_hotkey_id.set(Some(id));
-                        println!("HUD toggle hotkey registered: Cmd+Shift+0");
                     }
                     Err(e) => {
-                        eprintln!("Failed to register HUD hotkey: {e}");
+                        error_msg.set(format!("Failed to connect to server: {e}"));
+                        is_connected.set(false);
                     }
                 }
-            }
-        }
-    });
-
-    // Poll for hotkey events using a coroutine
-    use_coroutine({
-        let window_hud = window.clone();
-        let (_, rx) = hotkey_channel();
-        move |_rx_coroutine: UnboundedReceiver<()>| {
-            let window_hud = window_hud.clone();
-            let rx = rx.clone();
-            async move {
-                loop {
-                    // Check for hotkey events
-                    if let Ok(rx) = rx.lock() {
-                        if rx.try_recv().is_ok() {
-                            window_shown_intentionally.set(true);
-
-                            // Toggle window visibility
-                            if window_hud.is_visible() {
-                                window_hud.set_visible(false);
-                            } else {
-                                window_hud.set_visible(true);
-                            }
-                        }
-                    }
-                    // Poll every 50ms
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                }
-            }
-        }
-    });
-
-    // Cleanup hotkeys on unmount
-    use_drop(move || {
-        if let Some(id) = hud_hotkey_id() {
-            if let Ok(manager) = hotkey_manager.lock() {
-                let _ = manager.unbind(id);
             }
         }
     });
@@ -256,6 +321,43 @@ fn App() -> Element {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
 
-        hud::Hero {}
+        div { class: "p-4",
+            if !error_msg.read().is_empty() {
+                div { class: "text-red-500 mb-4",
+                    {error_msg.read().clone()}
+                }
+            }
+
+            if !*is_connected.read() {
+                div { class: "text-yellow-500 mb-4",
+                    "Connecting to hotkey server..."
+                }
+            }
+
+            div { class: "text-white",
+                h2 { class: "text-2xl font-bold mb-4", "Available Keys" }
+
+                div { class: "space-y-2",
+                    for (key, desc, attrs) in current_keys.read().iter() {
+                        if !attrs.hide {
+                            div { class: "flex items-center space-x-4",
+                                span { class: "font-mono bg-gray-700 px-2 py-1 rounded",
+                                    {key.to_string()}
+                                }
+                                span { class: "text-gray-300",
+                                    {desc.clone()}
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if keymode_state.read().depth() > 0 {
+                    div { class: "mt-4 text-sm text-gray-400",
+                        "Depth: {keymode_state.read().depth()}"
+                    }
+                }
+            }
+        }
     }
 }
