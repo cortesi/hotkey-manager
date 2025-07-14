@@ -1,0 +1,35 @@
+[application]
+name = "AI HUD"
+
+[bundle]
+identifier = "com.aihud.app"
+publisher = "Aldo Cortesi"
+
+[bundle.macos]
+files = {}
+hardened_runtime = false
+# LSUIElement makes the app an agent app (no dock icon, no app switcher)
+info_plist_extensions = """
+<key>LSUIElement</key>
+<true/>
+"""
+
+[web.app]
+
+# HTML title tag content
+title = "aihud"
+
+# include `assets` in web platform
+[web.resource]
+
+# Additional CSS style files
+style = []
+
+# Additional JavaScript files
+script = []
+
+[web.resource.dev]
+
+# Javascript code file
+# serve: [dev-server] only
+script = []

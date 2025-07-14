@@ -1,0 +1,23 @@
+[package]
+name = "hotki"
+version = "0.1.0"
+authors = ["Aldo Cortesi <aldo@corte.si>"]
+edition = "2021"
+
+
+[dependencies]
+hotkey-manager = { path = "../hotkey-manager" }
+keymode = { path = "../keymode"}
+
+dioxus = { git = "https://github.com/DioxusLabs/dioxus", branch = "main", features = [] }
+tokio = { version = "1", features = ["time"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.25"
+objc = "0.2"
+
+[features]
+default = ["desktop"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
