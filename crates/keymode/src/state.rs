@@ -5,8 +5,6 @@ use hotkey_manager::Key;
 /// Result of handling a key press
 #[derive(Debug, Default)]
 pub struct Handled {
-    /// Whether the exit action was triggered
-    pub exit: bool,
     /// Message to display to the user
     pub user: String,
     /// Warning message
@@ -17,14 +15,6 @@ impl Handled {
     /// Create a new Handled with default values
     fn new() -> Self {
         Self::default()
-    }
-
-    /// Create a Handled that signals exit
-    fn exit() -> Self {
-        Self {
-            exit: true,
-            ..Default::default()
-        }
     }
 }
 
@@ -96,18 +86,12 @@ impl State {
                 Ok(Handled::new())
             }
             Action::Pop => {
-                if self.mode_stack.is_empty() {
-                    Ok(Handled::exit())
-                } else {
-                    self.mode_stack.pop();
-                    Ok(Handled::new())
-                }
+                self.mode_stack.pop();
+                Ok(Handled::new())
             }
             Action::Exit => {
-                if !attrs.noexit {
-                    self.reset();
-                }
-                Ok(Handled::exit())
+                self.reset();
+                Ok(Handled::new())
             }
             Action::Shell(cmd) => {
                 execute_shell(cmd);
@@ -197,34 +181,34 @@ mod tests {
 
         // Test root mode
         assert_eq!(state.depth(), 0);
-        assert!(state.handle_key(&key("q")).unwrap().exit); // Exit returns true
+        state.handle_key(&key("q")).unwrap(); // Exit resets to root
         assert_eq!(state.depth(), 0); // Should reset to root after action
-        assert!(!state.handle_key(&key("h")).unwrap().exit); // Shell command returns false
+        state.handle_key(&key("h")).unwrap(); // Shell command
         assert_eq!(state.depth(), 0); // Should reset to root after action
 
         // Enter mode2
-        assert!(!state.handle_key(&key("2")).unwrap().exit); // Mode transition returns false
+        state.handle_key(&key("2")).unwrap(); // Mode transition
         assert_eq!(state.depth(), 1);
 
         // Test mode2 - actions should reset to root
-        assert!(!state.handle_key(&key("s")).unwrap().exit); // Shell command returns false
+        state.handle_key(&key("s")).unwrap(); // Shell command
         assert_eq!(state.depth(), 0); // Should reset to root after action
 
         // Go back to mode2 to test Exit
         state.handle_key(&key("2")).unwrap();
-        assert!(state.handle_key(&key("e")).unwrap().exit); // Exit returns true
+        state.handle_key(&key("e")).unwrap(); // Exit resets to root
         assert_eq!(state.depth(), 0); // Should reset to root after action
 
         // Test pop from nested mode
         state.handle_key(&key("2")).unwrap();
-        assert!(!state.handle_key(&key("p")).unwrap().exit); // Pop returns false
+        state.handle_key(&key("p")).unwrap(); // Pop
         assert_eq!(state.depth(), 0);
 
         // Test we're back in root
-        assert!(state.handle_key(&key("q")).unwrap().exit); // Exit returns true
+        state.handle_key(&key("q")).unwrap(); // Exit resets to root
 
-        // Test pop from root returns Exit
-        assert!(state.handle_key(&key("p")).unwrap().exit); // Pop from root returns true (exit)
+        // Test pop from root does nothing
+        state.handle_key(&key("p")).unwrap(); // Pop from root does nothing
     }
 
     #[test]
@@ -241,7 +225,7 @@ mod tests {
         let mut state = State::new(root);
 
         // Go into nested mode
-        assert!(!state.handle_key(&key("n")).unwrap().exit); // Mode transition returns false
+        state.handle_key(&key("n")).unwrap(); // Mode transition
         assert_eq!(state.depth(), 1);
 
         // Reset
@@ -260,9 +244,9 @@ mod tests {
 
         let mut state = State::new(root);
 
-        // Unknown key returns false (no exit)
-        assert!(!state.handle_key(&key("z")).unwrap().exit);
-        assert!(!state.handle_key(&key("x")).unwrap().exit);
+        // Unknown key does nothing
+        state.handle_key(&key("z")).unwrap();
+        state.handle_key(&key("x")).unwrap();
     }
 
     #[test]
@@ -283,27 +267,27 @@ mod tests {
         let mut state = State::new(root);
 
         // Enter menu
-        assert!(!state.handle_key(&key("m")).unwrap().exit); // Mode transition returns false
+        state.handle_key(&key("m")).unwrap(); // Mode transition
         assert_eq!(state.depth(), 1);
 
         // Normal action should reset to root
-        assert!(!state.handle_key(&key("n")).unwrap().exit); // Shell command returns false
+        state.handle_key(&key("n")).unwrap(); // Shell command
         assert_eq!(state.depth(), 0); // Should be at root after normal action
 
         // Go back to menu
-        assert!(!state.handle_key(&key("m")).unwrap().exit); // Mode transition returns false
+        state.handle_key(&key("m")).unwrap(); // Mode transition
         assert_eq!(state.depth(), 1);
 
         // Sticky action should NOT reset
-        assert!(!state.handle_key(&key("s")).unwrap().exit); // Shell command returns false
+        state.handle_key(&key("s")).unwrap(); // Shell command
         assert_eq!(state.depth(), 1); // Should still be in menu
 
         // Go deeper
-        assert!(!state.handle_key(&key("d")).unwrap().exit); // Mode transition returns false
+        state.handle_key(&key("d")).unwrap(); // Mode transition
         assert_eq!(state.depth(), 2);
 
         // Normal action in deep menu should reset to root
-        assert!(!state.handle_key(&key("x")).unwrap().exit); // Shell command returns false
+        state.handle_key(&key("x")).unwrap(); // Shell command
         assert_eq!(state.depth(), 0); // Should be back at root
 
         // Test sticky in deep menu
@@ -312,7 +296,7 @@ mod tests {
         assert_eq!(state.depth(), 2);
 
         // Sticky action in deep menu should NOT reset
-        assert!(!state.handle_key(&key("y")).unwrap().exit); // Shell command returns false
+        state.handle_key(&key("y")).unwrap(); // Shell command
         assert_eq!(state.depth(), 2); // Should still be in deep menu
     }
 
@@ -346,12 +330,12 @@ mod tests {
         assert_eq!(state.depth(), 1);
 
         // Global key from root should work
-        assert!(!state.handle_key(&key("g")).unwrap().exit);
+        state.handle_key(&key("g")).unwrap();
         assert_eq!(state.depth(), 0); // Should reset after shell command
 
         // Regular root key should NOT work in nested mode
         state.handle_key(&key("m")).unwrap(); // Enter menu again
-        assert!(!state.handle_key(&key("r")).unwrap().exit); // Should do nothing
+        state.handle_key(&key("r")).unwrap(); // Should do nothing
         assert_eq!(state.depth(), 1); // Still in menu
 
         // Test global key from menu is available in submenu
@@ -359,7 +343,7 @@ mod tests {
         assert_eq!(state.depth(), 2);
 
         // Global key from menu should work in submenu
-        assert!(!state.handle_key(&key("h")).unwrap().exit);
+        state.handle_key(&key("h")).unwrap();
         assert_eq!(state.depth(), 0); // Should reset after shell command
 
         // Test that global keys don't affect siblings
@@ -367,11 +351,11 @@ mod tests {
         assert_eq!(state.depth(), 1);
 
         // Global key from the other menu tree should NOT work here
-        assert!(!state.handle_key(&key("h")).unwrap().exit); // Should do nothing
+        state.handle_key(&key("h")).unwrap(); // Should do nothing
         assert_eq!(state.depth(), 1); // Still in menu n
 
         // But root global should still work
-        assert!(!state.handle_key(&key("g")).unwrap().exit);
+        state.handle_key(&key("g")).unwrap();
         assert_eq!(state.depth(), 0); // Should reset after shell command
     }
 
@@ -439,7 +423,7 @@ mod tests {
         assert_eq!(state.depth(), 2);
 
         // Use global key with noexit
-        assert!(!state.handle_key(&key("g")).unwrap().exit);
+        state.handle_key(&key("g")).unwrap();
         assert_eq!(state.depth(), 2); // Should NOT reset due to noexit
     }
 
@@ -460,7 +444,7 @@ mod tests {
         let mut state = State::new(root);
 
         // Test that hidden keys still work
-        assert!(!state.handle_key(&key("h")).unwrap().exit);
+        state.handle_key(&key("h")).unwrap();
         assert_eq!(state.depth(), 0); // Should reset after shell command
 
         // Check keys in root mode
@@ -482,12 +466,12 @@ mod tests {
         assert_eq!(state.depth(), 1);
 
         // Hidden key should still work
-        assert!(!state.handle_key(&key("s")).unwrap().exit);
+        state.handle_key(&key("s")).unwrap();
         assert_eq!(state.depth(), 0); // Should reset after shell command
 
         // Test global hidden key in menu
         state.handle_key(&key("m")).unwrap();
-        assert!(!state.handle_key(&key("g")).unwrap().exit); // Global hidden key should work
+        state.handle_key(&key("g")).unwrap(); // Global hidden key should work
         assert_eq!(state.depth(), 0);
     }
 }

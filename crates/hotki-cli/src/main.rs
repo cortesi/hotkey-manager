@@ -113,11 +113,6 @@ async fn process_hotkey_events(connection: &mut IPCConnection, state: &mut State
                     if !handled.warn.is_empty() {
                         eprintln!("Warning: {}", handled.warn);
                     }
-                    // Check if we should exit
-                    if handled.exit {
-                        info!("Exit action - shutting down...");
-                        return Ok(true); // Signal to exit
-                    }
                 }
                 Err(e) => {
                     error!("Error handling key: {}", e);

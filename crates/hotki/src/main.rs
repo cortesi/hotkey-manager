@@ -260,7 +260,7 @@ fn App() -> Element {
                                             // Handle the key
                                             let result = keymode_state.write().handle_key(&key);
                                             match result {
-                                                Ok(handled) => {
+                                                Ok(_handled) => {
                                                     // Update current keys after handling
                                                     let keys = keymode_state.read().keys();
                                                     current_keys.set(keys.clone());
@@ -276,12 +276,6 @@ fn App() -> Element {
                                                     } else if depth == 0 && window_ref.is_visible()
                                                     {
                                                         window_ref.set_visible(false);
-                                                    }
-
-                                                    // Handle exit
-                                                    if handled.exit {
-                                                        let _ = client.disconnect(true).await;
-                                                        std::process::exit(0);
                                                     }
                                                 }
                                                 Err(e) => {

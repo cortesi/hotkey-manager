@@ -22,7 +22,7 @@ pub enum Action {
     Mode(Mode),
     /// Return to the previous mode
     Pop,
-    /// Exit the hotkey manager
+    /// Pop all modes until the root mode is reached
     Exit,
 }
 
