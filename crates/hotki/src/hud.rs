@@ -325,4 +325,3 @@ pub fn HudWindow() -> Element {
         }
     }
 }
-

@@ -8,13 +8,17 @@ use crate::hud::HudWindow;
 use clap::Parser;
 use dioxus::{
     desktop::{
-        trayicon::menu::{Menu, MenuItem},
-        use_muda_event_handler, Config as DioxusConfig,
+        trayicon::{
+            init_tray_icon,
+            menu::{Menu, MenuItem, PredefinedMenuItem},
+        },
+        use_muda_event_handler, window, Config as DioxusConfig, LogicalSize, WindowBuilder,
     },
     prelude::*,
+    LaunchBuilder,
 };
 use hotkey_manager::Server;
-use std::{env, fs};
+use std::{env, fs, process};
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
@@ -48,7 +52,7 @@ fn main() {
         println!("Starting hotkey server...");
         if let Err(e) = Server::new().run() {
             eprintln!("Failed to run server: {e}");
-            std::process::exit(1);
+            process::exit(1);
         }
     } else {
         // Run GUI mode
@@ -59,7 +63,7 @@ fn main() {
                 eprintln!("Error: HOTKI_CONFIG environment variable not set");
                 eprintln!("Please set HOTKI_CONFIG to the path of your RON configuration file");
                 eprintln!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
-                std::process::exit(1);
+                process::exit(1);
             }
         };
 
@@ -70,7 +74,7 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("Failed to read config file '{config_path}': {e}");
-                std::process::exit(1);
+                process::exit(1);
             }
         };
 
@@ -79,17 +83,17 @@ fn main() {
             Ok(config) => config,
             Err(e) => {
                 eprintln!("Failed to parse config file '{config_path}': {e}");
-                std::process::exit(1);
+                process::exit(1);
             }
         };
 
         // Configure the app as a background agent before anything else
         platform_specific::configure_as_agent_app();
-        dioxus::LaunchBuilder::desktop()
+        LaunchBuilder::desktop()
             .with_cfg(
                 DioxusConfig::new()
                     .with_window(
-                        dioxus::desktop::WindowBuilder::new()
+                        WindowBuilder::new()
                             .with_transparent(false)
                             .with_visible(false),
                     )
@@ -114,7 +118,7 @@ fn App() -> Element {
 
         // Add menu items with IDs to handle click events
         let settings_item = MenuItem::with_id("settings", "Settings", true, None);
-        let separator = dioxus::desktop::trayicon::menu::PredefinedMenuItem::separator();
+        let separator = PredefinedMenuItem::separator();
         let quit_item = MenuItem::with_id("quit", "Quit", true, None);
 
         let _ = tray_menu.append(&settings_item);
@@ -122,7 +126,7 @@ fn App() -> Element {
         let _ = tray_menu.append(&quit_item);
 
         // Initialize tray icon with default icon
-        let tray_icon = dioxus::desktop::trayicon::init_tray_icon(
+        let tray_icon = init_tray_icon(
             tray_menu.clone(),
             None, // Uses default icon
         );
@@ -143,20 +147,20 @@ fn App() -> Element {
                 println!("Settings menu clicked");
                 // Create settings window with explicit window configuration
                 let dom = VirtualDom::new(settings::SettingsWindow);
-                let window_builder = dioxus::desktop::WindowBuilder::new()
+                let window_builder = WindowBuilder::new()
                     .with_title("Settings")
                     .with_decorations(true)
                     .with_resizable(true)
                     .with_always_on_top(false)
                     .with_visible(true)
-                    .with_inner_size(dioxus::desktop::LogicalSize::new(600.0, 500.0));
+                    .with_inner_size(LogicalSize::new(600.0, 500.0));
                 let config = DioxusConfig::new().with_window(window_builder);
-                dioxus::desktop::window().new_window(dom, config);
+                window().new_window(dom, config);
                 println!("Settings window created");
             }
             "quit" => {
                 // Quit the application
-                std::process::exit(0);
+                process::exit(0);
             }
             _ => {}
         }
@@ -165,7 +169,7 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
-        
+
         HudWindow {}
     }
 }

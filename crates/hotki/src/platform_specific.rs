@@ -8,13 +8,15 @@ use objc::{msg_send, sel, sel_impl};
 pub fn configure_as_agent_app() {
     unsafe {
         let app = NSApp();
-        
+
         // Set activation policy to Accessory (hides from dock and app switcher)
-        app.setActivationPolicy_(NSApplicationActivationPolicy::NSApplicationActivationPolicyAccessory);
-        
+        app.setActivationPolicy_(
+            NSApplicationActivationPolicy::NSApplicationActivationPolicyAccessory,
+        );
+
         // Also use msg_send to ensure it takes effect
         let _: () = msg_send![app, setActivationPolicy:1i64];
-        
+
         // Hide the app
         let _: () = msg_send![app, hide:nil];
     }
