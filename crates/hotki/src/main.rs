@@ -95,7 +95,8 @@ fn main() {
                     .with_window(
                         WindowBuilder::new()
                             .with_transparent(false)
-                            .with_visible(false),
+                            .with_visible(false)
+                            .with_resizable(false),
                     )
                     .with_custom_head(
                         r#"<style>

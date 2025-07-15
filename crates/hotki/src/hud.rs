@@ -293,7 +293,8 @@ pub fn HudWindow() -> Element {
     });
 
     rsx! {
-        div { class: "p-4",
+        div { 
+            style: "padding: 20px; background-color: #000000; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); width: 100%; height: 100%; box-sizing: border-box; overflow: hidden; resize: none; user-select: none;",
             if !error_msg.read().is_empty() {
                 div { class: "text-red-500 mb-4",
                     {error_msg.read().clone()}
