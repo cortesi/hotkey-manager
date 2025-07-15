@@ -1,4 +1,5 @@
 (
+    pos: center,
     keys: [
         ("shift+cmd+0", "Git Menu", mode([
             ("s", "Git Status", shell("git status")),

@@ -1,9 +1,26 @@
 use keymode::Mode;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Pos {
+    N,
+    #[default]
+    NE,
+    E,
+    SE,
+    S,
+    SW,
+    W,
+    NW,
+    Center,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub keys: Mode,
+    #[serde(default)]
+    pub pos: Pos,
 }
 
 #[cfg(test)]
