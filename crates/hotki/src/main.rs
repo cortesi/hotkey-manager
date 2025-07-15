@@ -46,6 +46,37 @@ fn main() {
         }
     } else {
         // Run GUI mode
+        // Load config from environment variable (required)
+        let config_path = match env::var("HOTKI_CONFIG") {
+            Ok(path) => path,
+            Err(_) => {
+                eprintln!("Error: HOTKI_CONFIG environment variable not set");
+                eprintln!("Please set HOTKI_CONFIG to the path of your RON configuration file");
+                eprintln!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
+                std::process::exit(1);
+            }
+        };
+
+        let config_content = match fs::read_to_string(&config_path) {
+            Ok(content) => {
+                println!("Loaded config from: {config_path}");
+                content
+            }
+            Err(e) => {
+                eprintln!("Failed to read config file '{config_path}': {e}");
+                std::process::exit(1);
+            }
+        };
+
+        // Parse the config
+        let mode = match Mode::from_ron(&config_content) {
+            Ok(mode) => mode,
+            Err(e) => {
+                eprintln!("Failed to parse config file '{config_path}': {e}");
+                std::process::exit(1);
+            }
+        };
+
         // Configure the app as a background agent before anything else
         platform_specific::configure_as_agent_app();
         dioxus::LaunchBuilder::desktop()
@@ -65,6 +96,7 @@ fn main() {
                             .to_string(),
                     ),
             )
+            .with_context(mode)
             .launch(App);
     }
 }
@@ -72,39 +104,9 @@ fn main() {
 #[component]
 fn App() -> Element {
     let window = use_window();
+    let initial_mode = use_context::<Mode>();
 
-    // Load config from environment variable (required)
-    let config_path = match env::var("HOTKI_CONFIG") {
-        Ok(path) => path,
-        Err(_) => {
-            eprintln!("Error: HOTKI_CONFIG environment variable not set");
-            eprintln!("Please set HOTKI_CONFIG to the path of your RON configuration file");
-            eprintln!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
-            std::process::exit(1);
-        }
-    };
-
-    let config_content = match fs::read_to_string(&config_path) {
-        Ok(content) => {
-            println!("Loaded config from: {config_path}");
-            content
-        }
-        Err(e) => {
-            eprintln!("Failed to read config file '{config_path}': {e}");
-            std::process::exit(1);
-        }
-    };
-
-    // Parse the config
-    let mode = match Mode::from_ron(&config_content) {
-        Ok(mode) => mode,
-        Err(e) => {
-            eprintln!("Failed to parse config file '{config_path}': {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let keymode_state = use_signal(|| State::new(mode));
+    let keymode_state = use_signal(|| State::new(initial_mode));
     let current_keys = use_signal(Vec::<(Key, String, keymode::Attrs)>::new);
     let error_msg = use_signal(String::new);
     let is_connected = use_signal(|| false);
