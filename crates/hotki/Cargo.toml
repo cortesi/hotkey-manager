@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 hotkey-manager = { path = "../hotkey-manager" }
 keymode = { path = "../keymode"}
+clap = { version = "4.5", features = ["derive"] }
 
 dioxus = { git = "https://github.com/DioxusLabs/dioxus", branch = "main", features = [] }
 tokio = { version = "1", features = ["time", "sync", "rt", "macros"] }

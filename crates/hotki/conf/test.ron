@@ -3,7 +3,15 @@
         ("s", "Git Status", shell("git status")),
         ("l", "Git Log", shell("git log --oneline -10"), (noexit: true)),
         ("d", "Git Diff", shell("git diff")),
-        ("q", "Back", pop),
+        ("m", "Submode", mode([
+            ("i", "Inner Mode", shell("echo Inner Mode")),
+            ("r", "Return to Main Menu", pop)
+        ])),
+        ("n", "Nested Mode", mode([
+            ("a", "Inner Action A", shell("echo Inner Action A")),
+        ])),
+        ("shift+cmd+0", "exit", exit, (global: true, hidden: true)),
     ])),
-    ("esc", "pop", pop, (global: true))
+    ("esc", "Back", pop, (global: true, hidden: true)),
+    ("q", "Quit", exit),
 ]

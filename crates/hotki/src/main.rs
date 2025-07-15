@@ -2,6 +2,7 @@ mod hud;
 mod platform_specific;
 mod settings;
 
+use clap::Parser;
 use dioxus::desktop::trayicon::menu::{Menu, MenuItem};
 use dioxus::desktop::{use_muda_event_handler, use_window, Config};
 use dioxus::prelude::*;
@@ -12,33 +13,35 @@ use std::{env, fs};
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
+#[derive(Parser, Debug)]
+#[command(name = "hotki")]
+#[command(about = "Hotkey Manager GUI", long_about = None)]
+#[command(after_help = r#"ENVIRONMENT VARIABLES:
+  HOTKI_CONFIG    Path to RON configuration file (required for GUI mode)
+
+EXAMPLES:
+  Run GUI:
+    HOTKI_CONFIG=/path/to/config.ron hotki
+    
+  Run server:
+    hotki --server"#)]
+struct Args {
+    /// Run as hotkey server (no GUI)
+    #[arg(long)]
+    server: bool,
+}
+
 fn main() {
-    // Check for command line arguments
-    let args: Vec<String> = env::args().collect();
+    // Filter out empty arguments that dx might pass
+    let args_vec: Vec<String> = env::args().filter(|arg| !arg.is_empty()).collect();
 
-    // Check for help flag
-    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        println!("Hotkey Manager GUI");
-        println!();
-        println!("Usage: {} [OPTIONS]", args[0]);
-        println!();
-        println!("Options:");
-        println!("  --server    Run as hotkey server (no GUI)");
-        println!("  --help, -h  Show this help message");
-        println!();
-        println!("Required environment variables:");
-        println!("  HOTKI_CONFIG    Path to RON configuration file");
-        println!();
-        println!("Example:");
-        println!("  HOTKI_CONFIG=/path/to/config.ron {} [OPTIONS]", args[0]);
-        std::process::exit(0);
-    }
+    let args = Args::parse_from(args_vec);
 
-    if args.iter().any(|arg| arg == "--server") {
+    if args.server {
         // Run in server mode
         println!("Starting hotkey server...");
         if let Err(e) = Server::new().run() {
-            eprintln!("Failed to run server: {}", e);
+            eprintln!("Failed to run server: {e}");
             std::process::exit(1);
         }
     } else {
@@ -83,11 +86,11 @@ fn App() -> Element {
 
     let config_content = match fs::read_to_string(&config_path) {
         Ok(content) => {
-            println!("Loaded config from: {}", config_path);
+            println!("Loaded config from: {config_path}");
             content
         }
         Err(e) => {
-            eprintln!("Failed to read config file '{}': {}", config_path, e);
+            eprintln!("Failed to read config file '{config_path}': {e}");
             std::process::exit(1);
         }
     };
@@ -96,7 +99,7 @@ fn App() -> Element {
     let mode = match Mode::from_ron(&config_content) {
         Ok(mode) => mode,
         Err(e) => {
-            eprintln!("Failed to parse config file '{}': {}", config_path, e);
+            eprintln!("Failed to parse config file '{config_path}': {e}");
             std::process::exit(1);
         }
     };
