@@ -176,6 +176,9 @@
   }
 }
 @layer utilities {
+  .visible {
+    visibility: visible;
+  }
   .relative {
     position: relative;
   }
@@ -193,9 +196,6 @@
   }
   .flex {
     display: flex;
-  }
-  .hidden {
-    display: none;
   }
   .h-4 {
     height: calc(var(--spacing) * 4);

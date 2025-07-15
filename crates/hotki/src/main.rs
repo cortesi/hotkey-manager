@@ -1,13 +1,15 @@
+mod config;
 mod hud;
 mod platform_specific;
 mod settings;
 
+use crate::config::Config;
 use clap::Parser;
 use dioxus::desktop::trayicon::menu::{Menu, MenuItem};
-use dioxus::desktop::{use_muda_event_handler, use_window, Config};
+use dioxus::desktop::{use_muda_event_handler, use_window, Config as DioxusConfig};
 use dioxus::prelude::*;
 use hotkey_manager::{Client, IPCResponse, Key, Server};
-use keymode::{Mode, State};
+use keymode::State;
 use std::{env, fs};
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -69,8 +71,8 @@ fn main() {
         };
 
         // Parse the config
-        let mode = match Mode::from_ron(&config_content) {
-            Ok(mode) => mode,
+        let config = match ron::from_str::<Config>(&config_content) {
+            Ok(config) => config,
             Err(e) => {
                 eprintln!("Failed to parse config file '{config_path}': {e}");
                 std::process::exit(1);
@@ -81,22 +83,22 @@ fn main() {
         platform_specific::configure_as_agent_app();
         dioxus::LaunchBuilder::desktop()
             .with_cfg(
-                Config::new()
+                DioxusConfig::new()
                     .with_window(
                         dioxus::desktop::WindowBuilder::new()
-                            .with_transparent(true)
+                            .with_transparent(false)
                             .with_visible(false)
                             // Position window off-screen initially to prevent flicker
                             .with_position(dioxus::desktop::LogicalPosition::new(-1000.0, -1000.0)),
                     )
                     .with_custom_head(
                         r#"<style>
-                        #app { background: transparent; }
+                        #app { background: #000000; }
                     </style>"#
                             .to_string(),
                     ),
             )
-            .with_context(mode)
+            .with_context(config)
             .launch(App);
     }
 }
@@ -104,9 +106,9 @@ fn main() {
 #[component]
 fn App() -> Element {
     let window = use_window();
-    let initial_mode = use_context::<Mode>();
+    let initial_config = use_context::<Config>();
 
-    let keymode_state = use_signal(|| State::new(initial_mode));
+    let keymode_state = use_signal(|| State::new(initial_config.keys.clone()));
     let current_keys = use_signal(Vec::<(Key, String, keymode::Attrs)>::new);
     let error_msg = use_signal(String::new);
     let is_connected = use_signal(|| false);
@@ -124,13 +126,58 @@ fn App() -> Element {
             window.set_always_on_top(true);
             window.set_resizable(false);
             window.set_visible_on_all_workspaces(true);
-            window.set_inner_size(dioxus::desktop::LogicalSize::new(400.0, 300.0));
+
+            // Initial size (will be dynamically updated)
+            window.set_inner_size(dioxus::desktop::LogicalSize::new(400.0, 100.0));
+
+            window.set_visible(false);
+        }
+    });
+
+    // Update window size and position based on visible items
+    use_effect({
+        let window = window.clone();
+        let current_keys = current_keys.clone();
+        let error_msg = error_msg.clone();
+        let is_connected = is_connected.clone();
+
+        move || {
+            // Calculate the number of visible items
+            let visible_count = current_keys
+                .read()
+                .iter()
+                .filter(|(_, _, attrs)| !attrs.hide)
+                .count();
+
+            // Base height calculations
+            let padding = 40.0; // Total padding (20px top + 20px bottom)
+            let item_height = 36.0; // Height per item including spacing
+            let error_height = if !error_msg.read().is_empty() {
+                40.0
+            } else {
+                0.0
+            };
+            let connection_height = if !*is_connected.read() { 40.0 } else { 0.0 };
+            let depth_height = 30.0; // Space for depth indicator
+
+            // Calculate total height
+            let content_height = (visible_count as f64 * item_height)
+                + error_height
+                + connection_height
+                + depth_height;
+            let window_height = content_height + padding;
+
+            // Set window size
+            let window_width = 400.0;
+            window.set_inner_size(dioxus::desktop::LogicalSize::new(
+                window_width,
+                window_height,
+            ));
 
             // Position window at correct location
             if let Some(monitor) = window.current_monitor() {
                 let screen_size = monitor.size();
                 let scale_factor = monitor.scale_factor();
-                let window_width = 400.0;
                 let padding = 20.0;
 
                 let physical_x = screen_size.width as f64
@@ -145,8 +192,6 @@ fn App() -> Element {
                     logical_x, logical_y,
                 ));
             }
-
-            window.set_visible(false);
         }
     });
 
@@ -193,7 +238,7 @@ fn App() -> Element {
                     .with_always_on_top(false)
                     .with_visible(true)
                     .with_inner_size(dioxus::desktop::LogicalSize::new(600.0, 500.0));
-                let config = dioxus::desktop::Config::new().with_window(window_builder);
+                let config = DioxusConfig::new().with_window(window_builder);
                 dioxus::desktop::window().new_window(dom, config);
                 println!("Settings window created");
             }
@@ -334,8 +379,6 @@ fn App() -> Element {
             }
 
             div { class: "text-white",
-                h2 { class: "text-2xl font-bold mb-4", "Available Keys" }
-
                 div { class: "space-y-2",
                     for (key, desc, attrs) in current_keys.read().iter() {
                         if !attrs.hide {
