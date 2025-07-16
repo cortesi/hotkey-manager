@@ -94,13 +94,13 @@ fn main() {
                 DioxusConfig::new()
                     .with_window(
                         WindowBuilder::new()
-                            .with_transparent(false)
+                            .with_transparent(true)
                             .with_visible(false)
                             .with_resizable(false),
                     )
                     .with_custom_head(
                         r#"<style>
-                        #app { background: #000000; }
+                        #app { background: transparent; }
                     </style>"#
                             .to_string(),
                     ),

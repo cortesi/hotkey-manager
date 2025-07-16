@@ -1,7 +1,7 @@
 (
     pos: center,
     keys: [
-        ("shift+cmd+0", "Git Menu", mode([
+        ("shift+cmd+0", "activate", mode([
             ("s", "Git Status", shell("git status")),
             ("l", "Git Log", shell("git log --oneline -10"), (noexit: true)),
             ("d", "Git Diff", shell("git diff")),

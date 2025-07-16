@@ -29,14 +29,17 @@ mod tests {
 
     #[test]
     fn test_config_deserialization() {
-        // Test with transparent deserialization - Config wraps Mode transparently
-        let config_text = r#"[
-            ("a", "Say hello", shell("echo 'Hello'")),
-            ("b", "Say world", shell("echo 'World'")),
-            ("m", "Submenu", mode([
-                ("x", "Exit submenu", pop),
-            ])),
-        ]"#;
+        // Test with proper Config struct format
+        let config_text = r#"(
+            keys: [
+                ("a", "Say hello", shell("echo 'Hello'")),
+                ("b", "Say world", shell("echo 'World'")),
+                ("m", "Submenu", mode([
+                    ("x", "Exit submenu", pop),
+                ])),
+            ],
+            pos: n,
+        )"#;
 
         let config: Config = ron::from_str(config_text).unwrap();
 

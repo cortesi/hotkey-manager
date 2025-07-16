@@ -1,20 +1,65 @@
-use crate::config::{Config, Pos};
-use dioxus::desktop::{use_window, LogicalPosition, LogicalSize};
-use dioxus::prelude::*;
+use dioxus::{
+    desktop::{use_window, LogicalPosition, LogicalSize},
+    prelude::*,
+};
+
 use hotkey_manager::{Client, IPCResponse, Key};
 use keymode::State;
+
+use crate::{
+    config::{Config, Pos},
+    platform_specific,
+};
 
 const WINDOW_WIDTH: f64 = 400.0;
 const WINDOW_PADDING: f64 = 20.0;
 
+/// Calculates the exact window height needed to contain the HUD content without clipping.
+///
+/// This function must precisely match the CSS layout to prevent content from being clipped.
+/// All values correspond to specific CSS rules and DOM structure.
+///
+/// # Layout Structure
+/// ```
+/// Window
+/// └── .hud-container (CSS: margin: 20px, padding: 20px)
+///     ├── Error message (optional, CSS: mb-4)
+///     ├── Connection status (optional, CSS: mb-4)
+///     └── .space-y-2 container
+///         └── Key items (CSS: .flex.items-center with .space-y-2 spacing)
+/// ```
+///
+/// # CSS Sources
+/// - `.hud-container` margin: 20px → 40px total vertical margin (assets/main.css:32)
+/// - `.hud-container` padding: 20px → 40px total vertical padding (assets/main.css:31)
+/// - `.mb-4` margin-bottom: 16px (tailwind.css:186, --spacing * 4 = 4px * 4)
+/// - `.space-y-2` margin: 8px between items (tailwind.css:219, --spacing * 2 = 4px * 2)
+/// - Base line-height: 1.5 → 24px for 16px font (tailwind.css:41)
+/// - `.py-1` padding: 4px top+bottom (tailwind.css:257, --spacing * 1 = 4px * 1)
 fn calculate_window_height(visible_count: usize, has_error: bool, is_connected: bool) -> f64 {
-    let padding = 40.0; // Total padding (20px top + 20px bottom)
-    let item_height = 36.0; // Height per item including spacing
+    // CSS .hud-container padding: 20px (top) + 20px (bottom) = 40px total
+    let padding = 40.0;
+
+    // CSS .hud-container margin: 20px (top) + 20px (bottom) = 40px total
+    let margin = 40.0;
+
+    // Each key item height calculation:
+    // - .flex.items-center container with default line-height: 1.5
+    // - Key span: 16px font × 1.5 line-height = 24px + .py-1 (4px top+bottom) = 32px
+    // - Description span: 16px font × 1.5 line-height = 24px
+    // - .space-y-2 adds 8px margin-bottom between items
+    // - Total per item: max(32px, 24px) + 8px = 40px
+    // - But last item has no bottom margin, so average = 36px per item
+    let item_height = 36.0;
+
+    // Error message height: 16px font × 1.5 line-height = 24px + .mb-4 (16px) = 40px
     let error_height = if has_error { 40.0 } else { 0.0 };
+
+    // Connection status height: 16px font × 1.5 line-height = 24px + .mb-4 (16px) = 40px
     let connection_height = if !is_connected { 40.0 } else { 0.0 };
 
     let content_height = (visible_count as f64 * item_height) + error_height + connection_height;
-    content_height + padding
+    content_height + padding + margin
 }
 
 fn calculate_window_position(
@@ -90,7 +135,7 @@ pub fn HudWindow() -> Element {
         let window = window.clone();
         move || {
             // Hide window from dock on macOS
-            crate::platform_specific::hide_from_dock_for_window(&window);
+            platform_specific::hide_from_dock_for_window(&window);
 
             // Set HUD window properties
             window.set_decorations(false);
@@ -293,8 +338,8 @@ pub fn HudWindow() -> Element {
     });
 
     rsx! {
-        div { 
-            style: "padding: 20px; background-color: #000000; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); width: 100%; height: 100%; box-sizing: border-box; overflow: hidden; resize: none; user-select: none;",
+        div {
+            class: "hud-container",
             if !error_msg.read().is_empty() {
                 div { class: "text-red-500 mb-4",
                     {error_msg.read().clone()}
