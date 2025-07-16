@@ -43,14 +43,14 @@ fn calculate_window_height(visible_count: usize, has_error: bool, is_connected: 
     // CSS .hud-container margin: 20px (top) + 20px (bottom) = 40px total
     let margin = 40.0;
 
-    // Each key item height calculation:
+    // Each key item height calculation (increased to prevent clipping):
     // - .flex.items-center container with default line-height: 1.5
     // - Key span: 16px font × 1.5 line-height = 24px + .py-1 (4px top+bottom) = 32px
     // - Description span: 16px font × 1.5 line-height = 24px
     // - .space-y-2 adds 8px margin-bottom between items
     // - Total per item: max(32px, 24px) + 8px = 40px
-    // - But last item has no bottom margin, so average = 36px per item
-    let item_height = 36.0;
+    // - Adding extra padding to ensure no clipping
+    let item_height = 44.0;
 
     // Error message height: 16px font × 1.5 line-height = 24px + .mb-4 (16px) = 40px
     let error_height = if has_error { 40.0 } else { 0.0 };
@@ -146,35 +146,6 @@ pub fn HudWindow() -> Element {
         }
     });
 
-    // Update window size when content changes (but not position)
-    use_effect({
-        let window = window.clone();
-
-        move || {
-            // Only update if window is visible to avoid unnecessary calculations
-            if !window.is_visible() {
-                return;
-            }
-
-            // Calculate the number of visible items
-            let visible_count = current_keys
-                .read()
-                .iter()
-                .filter(|(_, _, attrs)| !attrs.hide)
-                .count();
-
-            // Calculate window height using helper function
-            let window_height = calculate_window_height(
-                visible_count,
-                !error_msg.read().is_empty(),
-                *is_connected.read(),
-            );
-
-            // Only update size, not position
-            window.set_inner_size(LogicalSize::new(WINDOW_WIDTH, window_height));
-        }
-    });
-
     // Connect to hotkey server and handle events
     use_coroutine({
         let window = window.clone();
@@ -236,6 +207,9 @@ pub fn HudWindow() -> Element {
                                                     // Update current keys after handling
                                                     let keys = keymode_state.read().keys();
                                                     current_keys.set(keys.clone());
+
+                                                    // Hide current window
+                                                    window.set_visible(false);
 
                                                     // Request rebind
                                                     should_rebind.set(true);
