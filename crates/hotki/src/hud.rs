@@ -1,7 +1,8 @@
 use dioxus::{
-    desktop::{use_window, LogicalPosition, LogicalSize},
+    desktop::{use_window, DesktopService, LogicalPosition, LogicalSize},
     prelude::*,
 };
+use std::rc::Rc;
 
 use hotkey_manager::{Client, IPCResponse, Key};
 use keymode::State;
@@ -119,6 +120,215 @@ fn calculate_window_position(
     }
 }
 
+/// Configure HUD window properties (decorations, positioning, visibility, etc.)
+fn setup_hud_window(window: &Rc<DesktopService>) {
+    // Hide window from dock on macOS
+    platform_specific::hide_from_dock_for_window(window);
+
+    // Set HUD window properties
+    window.set_decorations(false);
+    window.set_always_on_top(true);
+    window.set_resizable(false);
+    window.set_visible_on_all_workspaces(true);
+    window.set_visible(false);
+}
+
+/// Position and size the window based on current content and configuration
+fn position_and_size_window(
+    window: &Rc<DesktopService>,
+    visible_count: usize,
+    has_error: bool,
+    is_connected: bool,
+    config: &Config,
+) {
+    let window_height = calculate_window_height(visible_count, has_error, is_connected);
+
+    // Debug output to understand initial sizing
+    println!(
+        "DEBUG: initial show - visible_count: {visible_count}, calculated height: {window_height}"
+    );
+
+    window.set_inner_size(LogicalSize::new(WINDOW_WIDTH, window_height));
+
+    // Position window
+    if let Some(monitor) = window.current_monitor() {
+        let screen_size = monitor.size();
+        let scale_factor = monitor.scale_factor();
+
+        let (physical_x, physical_y) = calculate_window_position(
+            config.pos,
+            screen_size.width as f64,
+            screen_size.height as f64,
+            WINDOW_WIDTH * scale_factor,
+            window_height * scale_factor,
+            WINDOW_PADDING * scale_factor,
+        );
+
+        let logical_x = physical_x / scale_factor;
+        let logical_y = physical_y / scale_factor;
+
+        window.set_outer_position(LogicalPosition::new(logical_x, logical_y));
+    }
+}
+
+/// State container for HUD signals
+struct HudState {
+    keymode_state: Signal<State>,
+    current_keys: Signal<Vec<(Key, String, keymode::Attrs)>>,
+    error_msg: Signal<String>,
+    is_connected: Signal<bool>,
+    should_rebind: Signal<bool>,
+}
+
+/// Handle a triggered hotkey and update window state accordingly
+fn handle_triggered_key(
+    key: &Key,
+    window: &Rc<DesktopService>,
+    initial_config: &Config,
+    state: &mut HudState,
+) {
+    // Handle the key
+    let result = state.keymode_state.write().handle_key(key);
+    match result {
+        Ok(_handled) => {
+            // Update current keys after handling
+            let keys = state.keymode_state.read().keys();
+            state.current_keys.set(keys.clone());
+
+            // Hide current window
+            window.set_visible(false);
+
+            // Request rebind
+            state.should_rebind.set(true);
+
+            // Check depth to show/hide window
+            let depth = state.keymode_state.read().depth();
+            let window_ref = window.clone();
+            if depth > 0 && !window_ref.is_visible() {
+                // Calculate and set window size before showing
+                let visible_count = state
+                    .current_keys
+                    .read()
+                    .iter()
+                    .filter(|(_, _, attrs)| !attrs.hide)
+                    .count();
+
+                position_and_size_window(
+                    &window_ref,
+                    visible_count,
+                    !state.error_msg.read().is_empty(),
+                    *state.is_connected.read(),
+                    initial_config,
+                );
+
+                // Now show the window
+                window_ref.set_visible(true);
+            } else if depth == 0 && window_ref.is_visible() {
+                window_ref.set_visible(false);
+            }
+        }
+        Err(e) => {
+            state.error_msg.set(format!("Error handling key: {e}"));
+        }
+    }
+}
+
+/// Bind or rebind keys with the hotkey server
+async fn bind_keys(connection: &mut hotkey_manager::IPCConnection, state: &mut HudState) {
+    let keys = state.keymode_state.read().keys();
+    state.current_keys.set(keys.clone());
+    let key_refs: Vec<Key> = keys.iter().map(|(k, _, _)| k.clone()).collect();
+
+    if let Err(e) = connection.rebind(&key_refs).await {
+        state.error_msg.set(format!("Failed to bind keys: {e}"));
+    }
+}
+
+/// Main event processing loop for handling hotkey triggers
+async fn run_event_loop(
+    connection: &mut hotkey_manager::IPCConnection,
+    window: &Rc<DesktopService>,
+    initial_config: &Config,
+    state: &mut HudState,
+) {
+    // Initial key binding
+    bind_keys(connection, state).await;
+
+    loop {
+        // Check if we need to rebind keys
+        if *state.should_rebind.read() {
+            state.should_rebind.set(false);
+            bind_keys(connection, state).await;
+        }
+
+        // Process events with timeout
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            connection.recv_event(),
+        )
+        .await
+        {
+            Ok(Ok(IPCResponse::HotkeyTriggered(key))) => {
+                handle_triggered_key(&key, window, initial_config, state);
+            }
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                state.error_msg.set(format!("Connection error: {e}"));
+                state.is_connected.set(false);
+                break;
+            }
+            Err(_) => {
+                // Timeout, continue loop
+            }
+        }
+    }
+}
+
+/// Handle server connection and key event processing
+async fn handle_server_connection(
+    window: Rc<DesktopService>,
+    initial_config: Config,
+    keymode_state: Signal<State>,
+    current_keys: Signal<Vec<(Key, String, keymode::Attrs)>>,
+    mut error_msg: Signal<String>,
+    mut is_connected: Signal<bool>,
+    should_rebind: Signal<bool>,
+) {
+    // Try to connect to the server
+    match Client::new().with_auto_spawn_server().connect().await {
+        Ok(mut client) => {
+            println!("Connected to hotkey server");
+            is_connected.set(true);
+
+            // Get connection and use it
+            match client.connection() {
+                Ok(connection) => {
+                    // Event loop (includes initial key binding)
+                    let mut state = HudState {
+                        keymode_state,
+                        current_keys,
+                        error_msg,
+                        is_connected,
+                        should_rebind,
+                    };
+                    run_event_loop(connection, &window, &initial_config, &mut state).await;
+
+                    // Disconnect on exit
+                    let _ = client.disconnect(true).await;
+                }
+                Err(e) => {
+                    error_msg.set(format!("Failed to get connection: {e}"));
+                    is_connected.set(false);
+                }
+            }
+        }
+        Err(e) => {
+            error_msg.set(format!("Failed to connect to server: {e}"));
+            is_connected.set(false);
+        }
+    }
+}
+
 #[component]
 pub fn HudWindow() -> Element {
     let window = use_window();
@@ -134,15 +344,7 @@ pub fn HudWindow() -> Element {
     use_effect({
         let window = window.clone();
         move || {
-            // Hide window from dock on macOS
-            platform_specific::hide_from_dock_for_window(&window);
-
-            // Set HUD window properties
-            window.set_decorations(false);
-            window.set_always_on_top(true);
-            window.set_resizable(false);
-            window.set_visible_on_all_workspaces(true);
-            window.set_visible(false);
+            setup_hud_window(&window);
         }
     });
 
@@ -152,162 +354,15 @@ pub fn HudWindow() -> Element {
 
         move |_: UnboundedReceiver<()>| {
             let window = window.clone();
-            let mut keymode_state = keymode_state;
-            let mut current_keys = current_keys;
-            let mut error_msg = error_msg;
-            let mut is_connected = is_connected;
-            let mut should_rebind = should_rebind;
-
-            async move {
-                // Try to connect to the server
-                match Client::new().with_auto_spawn_server().connect().await {
-                    Ok(mut client) => {
-                        println!("Connected to hotkey server");
-                        is_connected.set(true);
-
-                        // Get connection and use it
-                        match client.connection() {
-                            Ok(connection) => {
-                                // Initial key binding
-                                let keys = keymode_state.read().keys();
-                                current_keys.set(keys.clone());
-                                let key_refs: Vec<Key> =
-                                    keys.iter().map(|(k, _, _)| k.clone()).collect();
-
-                                if let Err(e) = connection.rebind(&key_refs).await {
-                                    error_msg.set(format!("Failed to bind keys: {e}"));
-                                }
-
-                                // Event loop
-                                loop {
-                                    // Check if we need to rebind keys
-                                    if *should_rebind.read() {
-                                        should_rebind.set(false);
-                                        let keys = keymode_state.read().keys();
-                                        let key_refs: Vec<Key> =
-                                            keys.iter().map(|(k, _, _)| k.clone()).collect();
-
-                                        if let Err(e) = connection.rebind(&key_refs).await {
-                                            error_msg.set(format!("Failed to rebind keys: {e}"));
-                                        }
-                                    }
-
-                                    // Process events with timeout
-                                    match tokio::time::timeout(
-                                        std::time::Duration::from_millis(100),
-                                        connection.recv_event(),
-                                    )
-                                    .await
-                                    {
-                                        Ok(Ok(IPCResponse::HotkeyTriggered(key))) => {
-                                            // Handle the key
-                                            let result = keymode_state.write().handle_key(&key);
-                                            match result {
-                                                Ok(_handled) => {
-                                                    // Update current keys after handling
-                                                    let keys = keymode_state.read().keys();
-                                                    current_keys.set(keys.clone());
-
-                                                    // Hide current window
-                                                    window.set_visible(false);
-
-                                                    // Request rebind
-                                                    should_rebind.set(true);
-
-                                                    // Check depth to show/hide window
-                                                    let depth = keymode_state.read().depth();
-                                                    let window_ref = window.clone();
-                                                    if depth > 0 && !window_ref.is_visible() {
-                                                        // Calculate and set window size before showing
-                                                        let visible_count = current_keys
-                                                            .read()
-                                                            .iter()
-                                                            .filter(|(_, _, attrs)| !attrs.hide)
-                                                            .count();
-
-                                                        let window_height = calculate_window_height(
-                                                            visible_count,
-                                                            !error_msg.read().is_empty(),
-                                                            *is_connected.read(),
-                                                        );
-
-                                                        window_ref.set_inner_size(
-                                                            LogicalSize::new(
-                                                                WINDOW_WIDTH,
-                                                                window_height,
-                                                            ),
-                                                        );
-
-                                                        // Position window
-                                                        if let Some(monitor) =
-                                                            window_ref.current_monitor()
-                                                        {
-                                                            let screen_size = monitor.size();
-                                                            let scale_factor =
-                                                                monitor.scale_factor();
-
-                                                            let (physical_x, physical_y) =
-                                                                calculate_window_position(
-                                                                    initial_config.pos,
-                                                                    screen_size.width as f64,
-                                                                    screen_size.height as f64,
-                                                                    WINDOW_WIDTH * scale_factor,
-                                                                    window_height * scale_factor,
-                                                                    WINDOW_PADDING * scale_factor,
-                                                                );
-
-                                                            let logical_x =
-                                                                physical_x / scale_factor;
-                                                            let logical_y =
-                                                                physical_y / scale_factor;
-
-                                                            window_ref.set_outer_position(
-                                                                LogicalPosition::new(
-                                                                    logical_x, logical_y,
-                                                                ),
-                                                            );
-                                                        }
-
-                                                        // Now show the window
-                                                        window_ref.set_visible(true);
-                                                    } else if depth == 0 && window_ref.is_visible()
-                                                    {
-                                                        window_ref.set_visible(false);
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    error_msg
-                                                        .set(format!("Error handling key: {e}"));
-                                                }
-                                            }
-                                        }
-                                        Ok(Ok(_)) => {}
-                                        Ok(Err(e)) => {
-                                            error_msg.set(format!("Connection error: {e}"));
-                                            is_connected.set(false);
-                                            break;
-                                        }
-                                        Err(_) => {
-                                            // Timeout, continue loop
-                                        }
-                                    }
-                                }
-
-                                // Disconnect on exit
-                                let _ = client.disconnect(true).await;
-                            }
-                            Err(e) => {
-                                error_msg.set(format!("Failed to get connection: {e}"));
-                                is_connected.set(false);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error_msg.set(format!("Failed to connect to server: {e}"));
-                        is_connected.set(false);
-                    }
-                }
-            }
+            handle_server_connection(
+                window,
+                initial_config.clone(),
+                keymode_state,
+                current_keys,
+                error_msg,
+                is_connected,
+                should_rebind,
+            )
         }
     });
 

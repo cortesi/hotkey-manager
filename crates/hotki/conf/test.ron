@@ -19,7 +19,6 @@
                 ("i", "Inner Action I", shell("echo here")),
             ])),
             ("shift+cmd+0", "exit", exit, (global: true, hide: true)),
-            ("esc", "Back", pop, (global: true, hide: true)),
         ])),
         ("shift+cmd+9", "activate", mode([
             ("a", "Inner Action A", shell("echo here")),
@@ -31,6 +30,7 @@
             ("g", "Inner Action G", shell("echo here")),
             ("h", "Inner Action H", shell("echo here")),
             ("i", "Inner Action I", shell("echo here")),
+            ("esc", "Back", pop, (global: true, hide: true)),
         ])),
     ]
 )

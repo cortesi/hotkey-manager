@@ -52,24 +52,25 @@ impl State {
 
         // If not found, check global keys from parent modes (in reverse order, from root up)
         // Check root first
-        if let Some((action, attrs)) = self.root.get_with_attrs(key) {
-            if attrs.global && !self.mode_stack.is_empty() {
-                let action = action.clone();
-                let attrs = attrs.clone();
-                return self.execute_action(&action, &attrs);
-            }
+        if let Some((action, attrs)) = self.root.get_with_attrs(key)
+            && attrs.global
+            && !self.mode_stack.is_empty()
+        {
+            let action = action.clone();
+            let attrs = attrs.clone();
+            return self.execute_action(&action, &attrs);
         }
 
         // Check each mode in the stack (excluding the last one which was already checked)
         let stack_len = self.mode_stack.len();
         if stack_len > 1 {
             for i in 0..stack_len - 1 {
-                if let Some((action, attrs)) = self.mode_stack[i].get_with_attrs(key) {
-                    if attrs.global {
-                        let action = action.clone();
-                        let attrs = attrs.clone();
-                        return self.execute_action(&action, &attrs);
-                    }
+                if let Some((action, attrs)) = self.mode_stack[i].get_with_attrs(key)
+                    && attrs.global
+                {
+                    let action = action.clone();
+                    let attrs = attrs.clone();
+                    return self.execute_action(&action, &attrs);
                 }
             }
         }
