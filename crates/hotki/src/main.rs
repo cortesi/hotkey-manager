@@ -1,7 +1,6 @@
 mod config;
 mod hud;
 mod platform_specific;
-mod settings;
 
 use crate::config::Config;
 use crate::hud::HudWindow;
@@ -12,7 +11,7 @@ use dioxus::{
             init_tray_icon,
             menu::{Menu, MenuItem, PredefinedMenuItem},
         },
-        use_muda_event_handler, window, Config as DioxusConfig, LogicalSize, WindowBuilder,
+        use_muda_event_handler, Config as DioxusConfig, WindowBuilder,
     },
     prelude::*,
     LaunchBuilder,
@@ -118,11 +117,15 @@ fn App() -> Element {
         let tray_menu = Menu::new();
 
         // Add menu items with IDs to handle click events
-        let settings_item = MenuItem::with_id("settings", "Settings", true, None);
+        let config_path =
+            env::var("HOTKI_CONFIG").unwrap_or_else(|_| "Config not found".to_string());
+        let config_item = MenuItem::with_id("config", &config_path, false, None);
+        let reveal_item = MenuItem::with_id("reveal", "Reveal Config in Finder", true, None);
         let separator = PredefinedMenuItem::separator();
         let quit_item = MenuItem::with_id("quit", "Quit", true, None);
 
-        let _ = tray_menu.append(&settings_item);
+        let _ = tray_menu.append(&config_item);
+        let _ = tray_menu.append(&reveal_item);
         let _ = tray_menu.append(&separator);
         let _ = tray_menu.append(&quit_item);
 
@@ -144,20 +147,15 @@ fn App() -> Element {
     // Handle tray menu click events
     use_muda_event_handler(move |event| {
         match event.id().as_ref() {
-            "settings" => {
-                println!("Settings menu clicked");
-                // Create settings window with explicit window configuration
-                let dom = VirtualDom::new(settings::SettingsWindow);
-                let window_builder = WindowBuilder::new()
-                    .with_title("Settings")
-                    .with_decorations(true)
-                    .with_resizable(true)
-                    .with_always_on_top(false)
-                    .with_visible(true)
-                    .with_inner_size(LogicalSize::new(600.0, 500.0));
-                let config = DioxusConfig::new().with_window(window_builder);
-                window().new_window(dom, config);
-                println!("Settings window created");
+            "reveal" => {
+                println!("Reveal config in Finder clicked");
+                if let Ok(config_path) = env::var("HOTKI_CONFIG") {
+                    // Use the 'open' command to reveal the file in Finder
+                    let _ = std::process::Command::new("open")
+                        .arg("-R") // -R flag reveals the file in Finder
+                        .arg(&config_path)
+                        .spawn();
+                }
             }
             "quit" => {
                 // Quit the application

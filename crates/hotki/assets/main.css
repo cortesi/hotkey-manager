@@ -33,26 +33,3 @@ html, body {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
-/* Settings window styling */
-.settings-container {
-    background-color: #1a1a1a;
-    color: #ffffff;
-    min-height: 100vh;
-}
-
-/* Ensure settings window has opaque background */
-body:has(.settings-container) {
-    background-color: #1a1a1a;
-}
-
-.settings-container h1, .settings-container h2 {
-    color: #ffffff;
-}
-
-.settings-container p {
-    color: #a0a0a0;
-}
-
-.settings-container input[type="checkbox"] {
-    accent-color: #3b82f6;
-}
