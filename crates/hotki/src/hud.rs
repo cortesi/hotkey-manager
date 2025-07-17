@@ -14,6 +14,7 @@ use crate::{
 
 const WINDOW_WIDTH: f64 = 400.0;
 const WINDOW_PADDING: f64 = 20.0;
+const AUTO_HIDE_TIMEOUT_MS: u64 = 3000; // 3 seconds
 
 /// Calculates the exact window height needed to contain the HUD content without clipping.
 ///
@@ -363,6 +364,28 @@ pub fn HudWindow() -> Element {
                 is_connected,
                 should_rebind,
             )
+        }
+    });
+
+    // Monitor window visibility and auto-hide when depth is 0
+    use_coroutine({
+        let window = window.clone();
+        move |_: UnboundedReceiver<()>| {
+            let window = window.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+                    if window.is_visible() && keymode_state.read().depth() == 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(AUTO_HIDE_TIMEOUT_MS))
+                            .await;
+                        // Check again in case depth changed while waiting
+                        if window.is_visible() && keymode_state.read().depth() == 0 {
+                            window.set_visible(false);
+                        }
+                    }
+                }
+            }
         }
     });
 
