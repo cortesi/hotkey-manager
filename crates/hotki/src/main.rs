@@ -1,7 +1,6 @@
 mod config;
 mod hud;
 mod logs;
-mod platform_specific;
 mod ringbuffer;
 
 use crate::config::Config;
@@ -110,8 +109,6 @@ fn main() {
             }
         };
 
-        // Configure the app as a background agent before anything else
-        platform_specific::configure_as_agent_app();
 
         use dioxus::desktop::WindowBuilder;
 
@@ -125,7 +122,8 @@ fn main() {
                 {
                     static POLICY_SET: std::sync::Once = std::sync::Once::new();
                     POLICY_SET.call_once(|| {
-                        event_loop_target.set_activation_policy_at_runtime(ActivationPolicy::Accessory);
+                        event_loop_target
+                            .set_activation_policy_at_runtime(ActivationPolicy::Accessory);
                     });
                 }
             });
@@ -152,7 +150,6 @@ fn App() -> Element {
             window.set_resizable(false);
             window.set_decorations(false);
             window.set_closable(false);
-            platform_specific::configure_as_agent_app();
         }
     });
 

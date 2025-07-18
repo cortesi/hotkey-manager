@@ -13,7 +13,6 @@ use keymode::State;
 
 use crate::{
     config::{Config, Pos},
-    platform_specific,
 };
 
 const WINDOW_WIDTH: f64 = 400.0;
@@ -127,9 +126,6 @@ fn calculate_window_position(
 
 /// Configure HUD window properties (decorations, positioning, visibility, etc.)
 fn setup_hud_window(window: &Rc<DesktopService>) {
-    // Hide window from dock on macOS
-    platform_specific::hide_from_dock_for_window(window);
-
     // Set HUD window properties
     window.set_decorations(false);
     window.set_always_on_top(true);
@@ -437,9 +433,6 @@ pub fn HudWindow() -> Element {
 
 /// Create the HUD window as a popup
 pub fn create_hud_window(config: crate::config::Config) {
-    // Ensure agent app configuration is maintained
-    platform_specific::configure_as_agent_app();
-    
     let window = dioxus::desktop::window();
     let window_config = DioxusConfig::new().with_window(
         WindowBuilder::new()
