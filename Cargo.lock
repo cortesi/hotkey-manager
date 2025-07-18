@@ -2241,6 +2241,7 @@ dependencies = [
  "clap",
  "cocoa 0.25.0",
  "dioxus",
+ "dioxus-desktop",
  "hotkey-manager",
  "image",
  "keymode",

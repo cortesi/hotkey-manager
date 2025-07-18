@@ -6,6 +6,8 @@ use std::sync::Arc;
 use std::thread;
 use tao::event::Event;
 use tao::event_loop::{ControlFlow, EventLoop};
+#[cfg(target_os = "macos")]
+use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
 use tracing::{debug, error, info, trace};
 
 /// A hotkey server that manages the event loop and IPC communication
@@ -49,7 +51,13 @@ impl Server {
         info!("Starting hotkey server on socket: {}", self.socket_path);
 
         // Create the tao event loop (must be on main thread for macOS)
-        let event_loop = EventLoop::new();
+        let mut event_loop = EventLoop::new();
+        
+        // Set activation policy to Accessory on macOS to prevent dock icon
+        #[cfg(target_os = "macos")]
+        {
+            event_loop.set_activation_policy(ActivationPolicy::Accessory);
+        }
 
         // Create the hotkey manager
         debug!("Creating HotkeyManager");

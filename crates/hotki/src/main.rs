@@ -21,6 +21,8 @@ use dioxus::{
     prelude::*,
     LaunchBuilder,
 };
+use dioxus_desktop::tao::platform::macos::{ActivationPolicy, EventLoopWindowTargetExtMacOS};
+
 use hotkey_manager::Server;
 use std::{env, fs, process};
 use tracing::{debug, error, info, Level};
@@ -75,8 +77,12 @@ fn main() {
                 match env::var("HOME") {
                     Ok(home) => format!("{home}/.hotki.ron"),
                     Err(_) => {
-                        error!("Error: Neither HOTKI_CONFIG nor HOME environment variables are set");
-                        error!("Please set HOTKI_CONFIG to the path of your RON configuration file");
+                        error!(
+                            "Error: Neither HOTKI_CONFIG nor HOME environment variables are set"
+                        );
+                        error!(
+                            "Please set HOTKI_CONFIG to the path of your RON configuration file"
+                        );
                         error!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
                         process::exit(1);
                     }
@@ -106,8 +112,24 @@ fn main() {
 
         // Configure the app as a background agent before anything else
         platform_specific::configure_as_agent_app();
-        
-        let dioxus_config = DioxusConfig::new();
+
+        use dioxus::desktop::WindowBuilder;
+
+        let window_builder = WindowBuilder::new().with_title("Hotki");
+        let dioxus_config = DioxusConfig::new()
+            .with_window(window_builder)
+            .with_disable_context_menu(true)
+            .with_custom_event_handler(|_event, event_loop_target| {
+                // Set activation policy to Accessory on macOS to prevent dock icon
+                #[cfg(target_os = "macos")]
+                {
+                    static POLICY_SET: std::sync::Once = std::sync::Once::new();
+                    POLICY_SET.call_once(|| {
+                        event_loop_target.set_activation_policy_at_runtime(ActivationPolicy::Accessory);
+                    });
+                }
+            });
+
         LaunchBuilder::desktop()
             .with_cfg(dioxus_config)
             .with_context(config)
@@ -118,12 +140,19 @@ fn main() {
 #[component]
 fn App() -> Element {
     let window = use_window();
-    
+
     // Hide the main window since it's just for tray functionality
     use_effect({
         let window = window.clone();
+
         move || {
             window.set_visible(false);
+            window.set_minimizable(false);
+            window.set_maximizable(false);
+            window.set_resizable(false);
+            window.set_decorations(false);
+            window.set_closable(false);
+            platform_specific::configure_as_agent_app();
         }
     });
 
@@ -158,10 +187,8 @@ fn App() -> Element {
             Some(Icon::from_rgba(rgba_data, width, height).unwrap()),
         );
 
-        // Set the menu to be shown on both left and right click
         tray_icon.set_menu(Some(Box::new(tray_menu)));
-
-        // Set tooltip
+        tray_icon.set_show_menu_on_left_click(true);
         let _ = tray_icon.set_tooltip(Some("Hotki"));
 
         debug!("Tray icon initialized");
