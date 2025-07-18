@@ -1,9 +1,12 @@
 use dioxus::{
-    desktop::{use_window, DesktopService, LogicalPosition, LogicalSize},
+    desktop::{use_window, DesktopService, LogicalPosition, LogicalSize, Config as DioxusConfig, WindowBuilder},
     prelude::*,
 };
 use std::rc::Rc;
 use tracing::{debug, info};
+
+const MAIN_CSS: Asset = asset!("/assets/main.css");
+const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 use hotkey_manager::{Client, IPCResponse, Key};
 use keymode::State;
@@ -133,6 +136,7 @@ fn setup_hud_window(window: &Rc<DesktopService>) {
     window.set_resizable(false);
     window.set_visible_on_all_workspaces(true);
     window.set_visible(false);
+    window.set_closable(true);
 }
 
 /// Position and size the window based on current content and configuration
@@ -392,6 +396,11 @@ pub fn HudWindow() -> Element {
     });
 
     rsx! {
+        document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Link { rel: "stylesheet", href: TAILWIND_CSS }
+        document::Style {
+            "#app {{ background: transparent; }}"
+        }
         div {
             class: "hud-container",
             if !error_msg.read().is_empty() {
@@ -424,4 +433,20 @@ pub fn HudWindow() -> Element {
             }
         }
     }
+}
+
+/// Create the HUD window as a popup
+pub fn create_hud_window(config: crate::config::Config) {
+    let window = dioxus::desktop::window();
+    let window_config = DioxusConfig::new().with_window(
+        WindowBuilder::new()
+            .with_transparent(true)
+            .with_visible(false)
+            .with_resizable(false)
+            .with_closable(true)
+            .with_decorations(false),
+    );
+    let mut dom = VirtualDom::new(HudWindow);
+    dom.provide_root_context(config);
+    window.new_window(dom, window_config);
 }

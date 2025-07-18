@@ -1,16 +1,9 @@
 use crate::ringbuffer::get_logs;
-use dioxus::desktop::{use_window, Config as DioxusConfig, LogicalSize, WindowBuilder};
+use dioxus::desktop::{Config as DioxusConfig, LogicalSize, WindowBuilder};
 use dioxus::prelude::*;
 
 #[component]
 pub fn LogsWindow() -> Element {
-    let window = use_window();
-
-    // Ensure window is visible (already configured during creation)
-    use_effect(move || {
-        window.set_visible(true);
-    });
-
     // Get logs and reverse them (newest first)
     let logs = use_resource(move || async move {
         let mut logs = get_logs();

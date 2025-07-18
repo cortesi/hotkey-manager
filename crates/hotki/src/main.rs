@@ -5,7 +5,7 @@ mod platform_specific;
 mod ringbuffer;
 
 use crate::config::Config;
-use crate::hud::HudWindow;
+use crate::hud::create_hud_window;
 use crate::logs::create_logs_window;
 use crate::ringbuffer::init_tracing;
 use clap::Parser;
@@ -16,7 +16,7 @@ use dioxus::{
             menu::{Menu, MenuItem, PredefinedMenuItem},
             Icon,
         },
-        use_muda_event_handler, Config as DioxusConfig, WindowBuilder,
+        use_muda_event_handler, use_window, Config as DioxusConfig,
     },
     prelude::*,
     LaunchBuilder,
@@ -86,7 +86,7 @@ fn main() {
             }
         };
 
-        // Parse the config
+        // Parse the confikj jjjg
         let config = match ron::from_str::<Config>(&config_content) {
             Ok(config) => config,
             Err(e) => {
@@ -98,22 +98,7 @@ fn main() {
         // Configure the app as a background agent before anything else
         platform_specific::configure_as_agent_app();
         LaunchBuilder::desktop()
-            .with_cfg(
-                DioxusConfig::new()
-                    .with_window(
-                        WindowBuilder::new()
-                            .with_transparent(true)
-                            .with_visible(false)
-                            .with_resizable(false)
-                            .with_closable(true),
-                    )
-                    .with_custom_head(
-                        r#"<style>
-                        #app { background: transparent; }
-                    </style>"#
-                            .to_string(),
-                    ),
-            )
+            .with_cfg(DioxusConfig::new())
             .with_context(config)
             .launch(App);
     }
@@ -121,6 +106,16 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    let window = use_window();
+    
+    // Hide the main window since it's just for tray functionality
+    use_effect({
+        let window = window.clone();
+        move || {
+            window.set_visible(false);
+        }
+    });
+
     // Initialize system tray icon
     use_effect(move || {
         // Create a simple tray menu
@@ -156,7 +151,7 @@ fn App() -> Element {
         tray_icon.set_menu(Some(Box::new(tray_menu)));
 
         // Set tooltip
-        let _ = tray_icon.set_tooltip(Some("Hotkey Manager"));
+        let _ = tray_icon.set_tooltip(Some("Hotki"));
 
         debug!("Tray icon initialized");
     });
@@ -186,12 +181,17 @@ fn App() -> Element {
         }
     });
 
-    // Handle window close events - close handler will be managed in LogsWindow component
+    // Create HUD window as a popup
+    let config = use_context::<Config>();
+    use_effect(move || {
+        create_hud_window(config.clone());
+    });
 
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
 
-        HudWindow {}
+        // Main app is just a hidden tray container
+        div { style: "display: none;", "Tray app" }
     }
 }
