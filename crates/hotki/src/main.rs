@@ -1,9 +1,11 @@
 mod config;
 mod hud;
 mod platform_specific;
+mod ringbuffer;
 
 use crate::config::Config;
 use crate::hud::HudWindow;
+use crate::ringbuffer::init_tracing;
 use clap::Parser;
 use dioxus::{
     desktop::{
@@ -19,10 +21,11 @@ use dioxus::{
 };
 use hotkey_manager::Server;
 use std::{env, fs, process};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, Level};
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+
 
 #[derive(Parser, Debug)]
 #[command(name = "hotki")]
@@ -43,6 +46,9 @@ struct Args {
 }
 
 fn main() {
+    // Initialize tracing with info level and 2048 entry ring buffer
+    init_tracing(Level::INFO, 2048);
+
     // Filter out empty arguments that dx might pass
     let args_vec: Vec<String> = env::args().filter(|arg| !arg.is_empty()).collect();
 

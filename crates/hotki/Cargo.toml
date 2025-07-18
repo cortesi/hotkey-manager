@@ -16,6 +16,7 @@ dioxus = { git = "https://github.com/DioxusLabs/dioxus", branch = "main", featur
 tokio = { version = "1", features = ["time", "sync", "rt", "macros"] }
 image = "0.25"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25"
