@@ -19,6 +19,7 @@ use dioxus::{
 };
 use hotkey_manager::Server;
 use std::{env, fs, process};
+use tracing::{debug, error, info};
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
@@ -49,9 +50,9 @@ fn main() {
 
     if args.server {
         // Run in server mode
-        println!("Starting hotkey server...");
+        info!("Starting hotkey server...");
         if let Err(e) = Server::new().run() {
-            eprintln!("Failed to run server: {e}");
+            error!("Failed to run server: {e}");
             process::exit(1);
         }
     } else {
@@ -60,20 +61,20 @@ fn main() {
         let config_path = match env::var("HOTKI_CONFIG") {
             Ok(path) => path,
             Err(_) => {
-                eprintln!("Error: HOTKI_CONFIG environment variable not set");
-                eprintln!("Please set HOTKI_CONFIG to the path of your RON configuration file");
-                eprintln!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
+                error!("Error: HOTKI_CONFIG environment variable not set");
+                error!("Please set HOTKI_CONFIG to the path of your RON configuration file");
+                error!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
                 process::exit(1);
             }
         };
 
         let config_content = match fs::read_to_string(&config_path) {
             Ok(content) => {
-                println!("Loaded config from: {config_path}");
+                info!("Loaded config from: {config_path}");
                 content
             }
             Err(e) => {
-                eprintln!("Failed to read config file '{config_path}': {e}");
+                error!("Failed to read config file '{config_path}': {e}");
                 process::exit(1);
             }
         };
@@ -82,7 +83,7 @@ fn main() {
         let config = match ron::from_str::<Config>(&config_content) {
             Ok(config) => config,
             Err(e) => {
-                eprintln!("Failed to parse config file '{config_path}': {e}");
+                error!("Failed to parse config file '{config_path}': {e}");
                 process::exit(1);
             }
         };
@@ -147,14 +148,14 @@ fn App() -> Element {
         // Set tooltip
         let _ = tray_icon.set_tooltip(Some("Hotkey Manager"));
 
-        println!("Tray icon initialized");
+        debug!("Tray icon initialized");
     });
 
     // Handle tray menu click events
     use_muda_event_handler(move |event| {
         match event.id().as_ref() {
             "reveal" => {
-                println!("Reveal config in Finder clicked");
+                debug!("Reveal config in Finder clicked");
                 if let Ok(config_path) = env::var("HOTKI_CONFIG") {
                     // Use the 'open' command to reveal the file in Finder
                     let _ = std::process::Command::new("open")
