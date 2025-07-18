@@ -10,7 +10,6 @@ use keymode::State;
 
 use crate::{
     config::{Config, Pos},
-    logs::SHOW_LOGS_WINDOW,
     platform_specific,
 };
 
@@ -207,7 +206,7 @@ fn handle_triggered_key(
             // Check depth to show/hide window
             let depth = state.keymode_state.read().depth();
             let window_ref = window.clone();
-            if depth > 0 && !window_ref.is_visible() && !*SHOW_LOGS_WINDOW.read() {
+            if depth > 0 && !window_ref.is_visible() {
                 // Calculate and set window size before showing
                 let visible_count = state
                     .current_keys
@@ -378,12 +377,12 @@ pub fn HudWindow() -> Element {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-                    // Only auto-hide if keymode depth is 0 AND logs window is not showing
-                    if window.is_visible() && keymode_state.read().depth() == 0 && !*SHOW_LOGS_WINDOW.read() {
+                    // Only auto-hide if keymode depth is 0
+                    if window.is_visible() && keymode_state.read().depth() == 0 {
                         tokio::time::sleep(std::time::Duration::from_millis(AUTO_HIDE_TIMEOUT_MS))
                             .await;
-                        // Check again in case depth changed while waiting or logs window opened
-                        if window.is_visible() && keymode_state.read().depth() == 0 && !*SHOW_LOGS_WINDOW.read() {
+                        // Check again in case depth changed while waiting
+                        if window.is_visible() && keymode_state.read().depth() == 0 {
                             window.set_visible(false);
                         }
                     }

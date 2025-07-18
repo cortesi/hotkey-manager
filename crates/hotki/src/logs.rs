@@ -1,39 +1,14 @@
 use crate::ringbuffer::get_logs;
+use dioxus::desktop::{use_window, Config as DioxusConfig, LogicalSize, WindowBuilder};
 use dioxus::prelude::*;
-use dioxus::desktop::{use_window, LogicalSize};
-
-/// Signal to control logs window visibility
-pub static SHOW_LOGS_WINDOW: GlobalSignal<bool> = Signal::global(|| false);
 
 #[component]
 pub fn LogsWindow() -> Element {
-    let show_logs = *SHOW_LOGS_WINDOW.read();
-    
-    if !show_logs {
-        return rsx! {};
-    }
-    
     let window = use_window();
-    
-    // Configure the logs window when it becomes visible/hidden
+
+    // Ensure window is visible (already configured during creation)
     use_effect(move || {
-        if show_logs {
-            window.set_title("Hotki - Logs (close via tray menu)");
-            window.set_inner_size(LogicalSize::new(800.0, 600.0));
-            window.set_minimizable(true);
-            window.set_maximizable(true);
-            window.set_resizable(true);
-            window.set_visible(true);
-            window.set_always_on_top(false);
-            window.set_decorations(true); // Enable window decorations for logs
-            // Note: We can't easily prevent window close, so instruct user via title
-        } else {
-            // When logs window is hidden, restore HUD window properties
-            window.set_visible(false);
-            window.set_decorations(false);
-            window.set_always_on_top(true);
-            window.set_resizable(false);
-        }
+        window.set_visible(true);
     });
 
     // Get logs and reverse them (newest first)
@@ -68,7 +43,7 @@ pub fn LogsWindow() -> Element {
                             color: #888;
                             font-weight: 600;
                         ",
-                        "Application Logs ({log_lines.len()} entries) - Close via tray menu"
+                        "Logs ({log_lines.len()} entries)"
                     }
                     div {
                         class: "logs-content",
@@ -111,18 +86,19 @@ pub fn LogsWindow() -> Element {
     }
 }
 
-/// Show the logs window
-pub fn show_logs_window() {
-    *SHOW_LOGS_WINDOW.write() = true;
-}
-
-/// Hide the logs window
-pub fn hide_logs_window() {
-    *SHOW_LOGS_WINDOW.write() = false;
-}
-
-/// Toggle the logs window visibility
-pub fn toggle_logs_window() {
-    let current_state = *SHOW_LOGS_WINDOW.read();
-    *SHOW_LOGS_WINDOW.write() = !current_state;
+/// Create a new logs window
+pub fn create_logs_window() {
+    let window = dioxus::desktop::window();
+    let config = DioxusConfig::new().with_window(
+        WindowBuilder::new()
+            .with_title("Hotki - Logs")
+            .with_inner_size(LogicalSize::new(800.0, 600.0))
+            .with_minimizable(true)
+            .with_maximizable(true)
+            .with_resizable(true)
+            .with_visible(true)
+            .with_decorations(true)
+            .with_closable(true),
+    );
+    window.new_window(VirtualDom::new(LogsWindow), config);
 }

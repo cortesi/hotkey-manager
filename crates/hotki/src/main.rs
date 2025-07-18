@@ -6,7 +6,7 @@ mod ringbuffer;
 
 use crate::config::Config;
 use crate::hud::HudWindow;
-use crate::logs::{toggle_logs_window, LogsWindow, SHOW_LOGS_WINDOW};
+use crate::logs::create_logs_window;
 use crate::ringbuffer::init_tracing;
 use clap::Parser;
 use dioxus::{
@@ -27,7 +27,6 @@ use tracing::{debug, error, info, Level};
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
-
 
 #[derive(Parser, Debug)]
 #[command(name = "hotki")]
@@ -106,7 +105,7 @@ fn main() {
                             .with_transparent(true)
                             .with_visible(false)
                             .with_resizable(false)
-                            .with_closable(true)
+                            .with_closable(true),
                     )
                     .with_custom_head(
                         r#"<style>
@@ -177,7 +176,7 @@ fn App() -> Element {
             }
             "logs" => {
                 debug!("Logs menu item clicked");
-                toggle_logs_window();
+                create_logs_window();
             }
             "quit" => {
                 // Quit the application
@@ -187,17 +186,12 @@ fn App() -> Element {
         }
     });
 
-    // TODO: Handle window close events properly
-    // For now, users can close the logs by clicking "Logs" in tray menu again
+    // Handle window close events - close handler will be managed in LogsWindow component
 
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
 
-        if *SHOW_LOGS_WINDOW.read() {
-            LogsWindow {}
-        } else {
-            HudWindow {}
-        }
+        HudWindow {}
     }
 }
