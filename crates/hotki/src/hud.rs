@@ -3,12 +3,14 @@ use dioxus::{
     prelude::*,
 };
 use std::rc::Rc;
+use tracing::{debug, info};
 
 use hotkey_manager::{Client, IPCResponse, Key};
 use keymode::State;
 
 use crate::{
     config::{Config, Pos},
+    logs::SHOW_LOGS_WINDOW,
     platform_specific,
 };
 
@@ -145,8 +147,8 @@ fn position_and_size_window(
     let window_height = calculate_window_height(visible_count, has_error, is_connected);
 
     // Debug output to understand initial sizing
-    println!(
-        "DEBUG: initial show - visible_count: {visible_count}, calculated height: {window_height}"
+    debug!(
+        "initial show - visible_count: {visible_count}, calculated height: {window_height}"
     );
 
     window.set_inner_size(LogicalSize::new(WINDOW_WIDTH, window_height));
@@ -205,7 +207,7 @@ fn handle_triggered_key(
             // Check depth to show/hide window
             let depth = state.keymode_state.read().depth();
             let window_ref = window.clone();
-            if depth > 0 && !window_ref.is_visible() {
+            if depth > 0 && !window_ref.is_visible() && !*SHOW_LOGS_WINDOW.read() {
                 // Calculate and set window size before showing
                 let visible_count = state
                     .current_keys
@@ -222,7 +224,7 @@ fn handle_triggered_key(
                     initial_config,
                 );
 
-                // Now show the window
+                // Now show the window (only if logs window is not showing)
                 window_ref.set_visible(true);
             } else if depth == 0 && window_ref.is_visible() {
                 window_ref.set_visible(false);
@@ -298,7 +300,7 @@ async fn handle_server_connection(
     // Try to connect to the server
     match Client::new().with_auto_spawn_server().connect().await {
         Ok(mut client) => {
-            println!("Connected to hotkey server");
+            info!("Connected to hotkey server");
             is_connected.set(true);
 
             // Get connection and use it
@@ -376,11 +378,12 @@ pub fn HudWindow() -> Element {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-                    if window.is_visible() && keymode_state.read().depth() == 0 {
+                    // Only auto-hide if keymode depth is 0 AND logs window is not showing
+                    if window.is_visible() && keymode_state.read().depth() == 0 && !*SHOW_LOGS_WINDOW.read() {
                         tokio::time::sleep(std::time::Duration::from_millis(AUTO_HIDE_TIMEOUT_MS))
                             .await;
-                        // Check again in case depth changed while waiting
-                        if window.is_visible() && keymode_state.read().depth() == 0 {
+                        // Check again in case depth changed while waiting or logs window opened
+                        if window.is_visible() && keymode_state.read().depth() == 0 && !*SHOW_LOGS_WINDOW.read() {
                             window.set_visible(false);
                         }
                     }

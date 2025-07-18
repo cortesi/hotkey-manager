@@ -1,10 +1,12 @@
 mod config;
 mod hud;
+mod logs;
 mod platform_specific;
 mod ringbuffer;
 
 use crate::config::Config;
 use crate::hud::HudWindow;
+use crate::logs::{toggle_logs_window, LogsWindow, SHOW_LOGS_WINDOW};
 use crate::ringbuffer::init_tracing;
 use clap::Parser;
 use dioxus::{
@@ -103,7 +105,8 @@ fn main() {
                         WindowBuilder::new()
                             .with_transparent(true)
                             .with_visible(false)
-                            .with_resizable(false),
+                            .with_resizable(false)
+                            .with_closable(true)
                     )
                     .with_custom_head(
                         r#"<style>
@@ -129,11 +132,13 @@ fn App() -> Element {
             env::var("HOTKI_CONFIG").unwrap_or_else(|_| "Config not found".to_string());
         let config_item = MenuItem::with_id("config", &config_path, false, None);
         let reveal_item = MenuItem::with_id("reveal", "Reveal Config in Finder", true, None);
+        let logs_item = MenuItem::with_id("logs", "Logs", true, None);
         let separator = PredefinedMenuItem::separator();
         let quit_item = MenuItem::with_id("quit", "Quit", true, None);
 
         let _ = tray_menu.append(&config_item);
         let _ = tray_menu.append(&reveal_item);
+        let _ = tray_menu.append(&logs_item);
         let _ = tray_menu.append(&separator);
         let _ = tray_menu.append(&quit_item);
 
@@ -170,6 +175,10 @@ fn App() -> Element {
                         .spawn();
                 }
             }
+            "logs" => {
+                debug!("Logs menu item clicked");
+                toggle_logs_window();
+            }
             "quit" => {
                 // Quit the application
                 process::exit(0);
@@ -178,10 +187,17 @@ fn App() -> Element {
         }
     });
 
+    // TODO: Handle window close events properly
+    // For now, users can close the logs by clicking "Logs" in tray menu again
+
     rsx! {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
 
-        HudWindow {}
+        if *SHOW_LOGS_WINDOW.read() {
+            LogsWindow {}
+        } else {
+            HudWindow {}
+        }
     }
 }

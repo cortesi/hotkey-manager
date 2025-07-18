@@ -1,6 +1,8 @@
-use std::{collections::VecDeque, io::Write, sync::Mutex};
+use std::{collections::VecDeque, io::Write, sync::{Mutex, Arc, OnceLock}};
 use tracing::Level;
 use tracing_subscriber::{fmt::MakeWriter, layer::SubscriberExt, util::SubscriberInitExt};
+
+static GLOBAL_RING_BUFFER: OnceLock<Arc<RingBuffer>> = OnceLock::new();
 
 /// Ring buffer for storing log entries with a fixed capacity
 #[derive(Debug)]
@@ -85,6 +87,9 @@ impl Write for RingBufferWriterInstance {
 
 pub fn init_tracing(log_level: Level, ring_buffer_size: usize) {
     let ring_writer = RingBufferWriter::new(ring_buffer_size);
+    
+    // Store the global reference to the ring buffer
+    let _ = GLOBAL_RING_BUFFER.set(ring_writer.buffer.clone());
 
     let subscriber = tracing_subscriber::registry()
         .with(
@@ -103,4 +108,13 @@ pub fn init_tracing(log_level: Level, ring_buffer_size: usize) {
         ));
 
     subscriber.init();
+}
+
+/// Get the current logs from the global ring buffer
+pub fn get_logs() -> Vec<String> {
+    if let Some(buffer) = GLOBAL_RING_BUFFER.get() {
+        buffer.get_logs()
+    } else {
+        Vec::new()
+    }
 }
