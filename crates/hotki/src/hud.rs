@@ -437,6 +437,9 @@ pub fn HudWindow() -> Element {
 
 /// Create the HUD window as a popup
 pub fn create_hud_window(config: crate::config::Config) {
+    // Ensure agent app configuration is maintained
+    platform_specific::configure_as_agent_app();
+    
     let window = dioxus::desktop::window();
     let window_config = DioxusConfig::new().with_window(
         WindowBuilder::new()
@@ -446,7 +449,7 @@ pub fn create_hud_window(config: crate::config::Config) {
             .with_closable(true)
             .with_decorations(false),
     );
-    let mut dom = VirtualDom::new(HudWindow);
+    let dom = VirtualDom::new(HudWindow);
     dom.provide_root_context(config);
     window.new_window(dom, window_config);
 }

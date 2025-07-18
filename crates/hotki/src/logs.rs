@@ -81,6 +81,9 @@ pub fn LogsWindow() -> Element {
 
 /// Create a new logs window
 pub fn create_logs_window() {
+    // Ensure agent app configuration is maintained
+    crate::platform_specific::configure_as_agent_app();
+    
     let window = dioxus::desktop::window();
     let config = DioxusConfig::new().with_window(
         WindowBuilder::new()

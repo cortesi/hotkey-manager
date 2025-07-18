@@ -22,4 +22,5 @@ cargo test --all
 ```bash
 cd crates/hotki
 dx build
+./fix_info_plist.sh
 ```

@@ -10,8 +10,8 @@ files = {}
 hardened_runtime = false
 # LSUIElement makes the app an agent app (no dock icon, no app switcher)
 info_plist_extensions = """
-<key>LSUIElement</key>
-<true/>
+	<key>LSUIElement</key>
+	<true/>
 """
 
 [web.app]

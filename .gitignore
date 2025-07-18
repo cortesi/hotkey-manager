@@ -5,3 +5,4 @@ crates/ui/dist
 .cargo/
 .venv
 .claude
+.DS_Store

@@ -32,10 +32,13 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 #[command(name = "hotki")]
 #[command(about = "Hotkey Manager GUI", long_about = None)]
 #[command(after_help = r#"ENVIRONMENT VARIABLES:
-  HOTKI_CONFIG    Path to RON configuration file (required for GUI mode)
+  HOTKI_CONFIG    Path to RON configuration file (defaults to ~/.hotki.ron)
 
 EXAMPLES:
-  Run GUI:
+  Run GUI (with default config):
+    hotki
+    
+  Run GUI (with custom config):
     HOTKI_CONFIG=/path/to/config.ron hotki
     
   Run server:
@@ -64,14 +67,20 @@ fn main() {
         }
     } else {
         // Run GUI mode
-        // Load config from environment variable (required)
+        // Load config from environment variable or default to ~/.hotki.ron
         let config_path = match env::var("HOTKI_CONFIG") {
             Ok(path) => path,
             Err(_) => {
-                error!("Error: HOTKI_CONFIG environment variable not set");
-                error!("Please set HOTKI_CONFIG to the path of your RON configuration file");
-                error!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
-                process::exit(1);
+                // Default to ~/.hotki.ron
+                match env::var("HOME") {
+                    Ok(home) => format!("{home}/.hotki.ron"),
+                    Err(_) => {
+                        error!("Error: Neither HOTKI_CONFIG nor HOME environment variables are set");
+                        error!("Please set HOTKI_CONFIG to the path of your RON configuration file");
+                        error!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
+                        process::exit(1);
+                    }
+                }
             }
         };
 
@@ -97,8 +106,10 @@ fn main() {
 
         // Configure the app as a background agent before anything else
         platform_specific::configure_as_agent_app();
+        
+        let dioxus_config = DioxusConfig::new();
         LaunchBuilder::desktop()
-            .with_cfg(DioxusConfig::new())
+            .with_cfg(dioxus_config)
             .with_context(config)
             .launch(App);
     }

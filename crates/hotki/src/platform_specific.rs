@@ -17,6 +17,9 @@ pub fn configure_as_agent_app() {
         // Also use msg_send to ensure it takes effect
         let _: () = msg_send![app, setActivationPolicy:1i64];
 
+        // Prevent showing in dock
+        let _: () = msg_send![app, setApplicationIconImage:nil];
+        
         // Hide the app
         let _: () = msg_send![app, hide:nil];
     }
