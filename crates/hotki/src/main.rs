@@ -10,6 +10,7 @@ use dioxus::{
         trayicon::{
             init_tray_icon,
             menu::{Menu, MenuItem, PredefinedMenuItem},
+            Icon,
         },
         use_muda_event_handler, Config as DioxusConfig, WindowBuilder,
     },
@@ -129,10 +130,15 @@ fn App() -> Element {
         let _ = tray_menu.append(&separator);
         let _ = tray_menu.append(&quit_item);
 
-        // Initialize tray icon with default icon
+        // Initialize tray icon with custom logo
+        let icon_bytes = include_bytes!("../logo/tray-icon.png");
+        let img = image::load_from_memory(icon_bytes).unwrap().to_rgba8();
+        let (width, height) = img.dimensions();
+        let rgba_data = img.into_raw();
+
         let tray_icon = init_tray_icon(
             tray_menu.clone(),
-            None, // Uses default icon
+            Some(Icon::from_rgba(rgba_data, width, height).unwrap()),
         );
 
         // Set the menu to be shown on both left and right click

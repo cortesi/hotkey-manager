@@ -14,6 +14,7 @@ ron = "0.10.1"
 
 dioxus = { git = "https://github.com/DioxusLabs/dioxus", branch = "main", features = [] }
 tokio = { version = "1", features = ["time", "sync", "rt", "macros"] }
+image = "0.25"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25"
