@@ -1,4 +1,8 @@
-use std::{collections::VecDeque, io::Write, sync::{Mutex, Arc, OnceLock}};
+use std::{
+    collections::VecDeque,
+    io::Write,
+    sync::{Arc, Mutex, OnceLock},
+};
 use tracing::Level;
 use tracing_subscriber::{fmt::MakeWriter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -87,7 +91,7 @@ impl Write for RingBufferWriterInstance {
 
 pub fn init_tracing(log_level: Level, ring_buffer_size: usize) {
     let ring_writer = RingBufferWriter::new(ring_buffer_size);
-    
+
     // Store the global reference to the ring buffer
     let _ = GLOBAL_RING_BUFFER.set(ring_writer.buffer.clone());
 

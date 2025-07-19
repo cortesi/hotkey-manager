@@ -1,5 +1,8 @@
 use dioxus::{
-    desktop::{use_window, DesktopService, LogicalPosition, LogicalSize, Config as DioxusConfig, WindowBuilder},
+    desktop::{
+        use_window, Config as DioxusConfig, DesktopService, LogicalPosition, LogicalSize,
+        WindowBuilder,
+    },
     prelude::*,
 };
 use std::rc::Rc;
@@ -11,9 +14,7 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 use hotkey_manager::{Client, IPCResponse, Key};
 use keymode::State;
 
-use crate::{
-    config::{Config, Pos},
-};
+use crate::config::{Config, Pos};
 
 const WINDOW_WIDTH: f64 = 400.0;
 const WINDOW_PADDING: f64 = 20.0;
@@ -146,9 +147,7 @@ fn position_and_size_window(
     let window_height = calculate_window_height(visible_count, has_error, is_connected);
 
     // Debug output to understand initial sizing
-    debug!(
-        "initial show - visible_count: {visible_count}, calculated height: {window_height}"
-    );
+    debug!("initial show - visible_count: {visible_count}, calculated height: {window_height}");
 
     window.set_inner_size(LogicalSize::new(WINDOW_WIDTH, window_height));
 

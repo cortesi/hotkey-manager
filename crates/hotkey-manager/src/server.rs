@@ -52,7 +52,7 @@ impl Server {
 
         // Create the tao event loop (must be on main thread for macOS)
         let mut event_loop = EventLoop::new();
-        
+
         // Set activation policy to Accessory on macOS to prevent dock icon
         #[cfg(target_os = "macos")]
         {

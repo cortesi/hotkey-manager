@@ -109,7 +109,6 @@ fn main() {
             }
         };
 
-
         use dioxus::desktop::WindowBuilder;
 
         let window_builder = WindowBuilder::new().with_title("Hotki");
@@ -196,13 +195,26 @@ fn App() -> Element {
         match event.id().as_ref() {
             "reveal" => {
                 debug!("Reveal config in Finder clicked");
-                if let Ok(config_path) = env::var("HOTKI_CONFIG") {
-                    // Use the 'open' command to reveal the file in Finder
-                    let _ = std::process::Command::new("open")
-                        .arg("-R") // -R flag reveals the file in Finder
-                        .arg(&config_path)
-                        .spawn();
-                }
+                // Get the actual config path using the same logic as config loading
+                let config_path = match env::var("HOTKI_CONFIG") {
+                    Ok(path) => path,
+                    Err(_) => {
+                        // Default to ~/.hotki.ron
+                        match env::var("HOME") {
+                            Ok(home) => format!("{home}/.hotki.ron"),
+                            Err(_) => {
+                                error!("Cannot determine config path: HOME environment variable not set");
+                                return;
+                            }
+                        }
+                    }
+                };
+
+                // Use the 'open' command to reveal the file in Finder
+                let _ = std::process::Command::new("open")
+                    .arg("-R") // -R flag reveals the file in Finder
+                    .arg(&config_path)
+                    .spawn();
             }
             "logs" => {
                 debug!("Logs menu item clicked");
