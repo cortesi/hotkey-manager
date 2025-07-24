@@ -1,5 +1,4 @@
 use crate::ringbuffer::get_logs;
-use dioxus::desktop::{Config as DioxusConfig, LogicalSize, WindowBuilder};
 use dioxus::prelude::*;
 
 #[component]
@@ -79,19 +78,3 @@ pub fn LogsWindow() -> Element {
     }
 }
 
-/// Create a new logs window
-pub fn create_logs_window() {
-    let window = dioxus::desktop::window();
-    let config = DioxusConfig::new().with_window(
-        WindowBuilder::new()
-            .with_title("Hotki - Logs")
-            .with_inner_size(LogicalSize::new(800.0, 600.0))
-            .with_minimizable(true)
-            .with_maximizable(true)
-            .with_resizable(true)
-            .with_visible(true)
-            .with_decorations(true)
-            .with_closable(true),
-    );
-    window.new_window(VirtualDom::new(LogsWindow), config);
-}

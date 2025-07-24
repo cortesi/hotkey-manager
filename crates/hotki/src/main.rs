@@ -5,7 +5,7 @@ mod ringbuffer;
 
 use crate::config::Config;
 use crate::hud::create_hud_window;
-use crate::logs::create_logs_window;
+use crate::logs::LogsWindow;
 use crate::ringbuffer::init_tracing;
 use clap::Parser;
 use dioxus::{
@@ -124,7 +124,15 @@ fn main() {
 
         use dioxus::desktop::WindowBuilder;
 
-        let window_builder = WindowBuilder::new().with_title("Hotki");
+        let window_builder = WindowBuilder::new()
+            .with_title("Hotki - Logs")
+            .with_inner_size(dioxus::desktop::LogicalSize::new(800.0, 600.0))
+            .with_minimizable(true)
+            .with_maximizable(true)
+            .with_resizable(true)
+            .with_visible(false) // Hide on startup
+            .with_decorations(true)
+            .with_closable(true);
         let dioxus_config = DioxusConfig::new()
             .with_window(window_builder)
             .with_disable_context_menu(true)
@@ -143,27 +151,13 @@ fn main() {
         LaunchBuilder::desktop()
             .with_cfg(dioxus_config)
             .with_context(config)
-            .launch(App);
+            .launch(LogsApp);
     }
 }
 
 #[component]
-fn App() -> Element {
+fn LogsApp() -> Element {
     let window = use_window();
-
-    // Hide the main window since it's just for tray functionality
-    use_effect({
-        let window = window.clone();
-
-        move || {
-            window.set_visible(false);
-            window.set_minimizable(false);
-            window.set_maximizable(false);
-            window.set_resizable(false);
-            window.set_decorations(false);
-            window.set_closable(false);
-        }
-    });
 
     // Initialize system tray icon
     use_effect(move || {
@@ -204,7 +198,9 @@ fn App() -> Element {
     });
 
     // Handle tray menu click events
-    use_muda_event_handler(move |event| {
+    use_muda_event_handler({
+        let window = window.clone();
+        move |event| {
         match event.id().as_ref() {
             "reveal" => {
                 debug!("Reveal config in Finder clicked");
@@ -220,7 +216,8 @@ fn App() -> Element {
             }
             "logs" => {
                 debug!("Logs menu item clicked");
-                create_logs_window();
+                window.set_visible(true);
+                window.set_focus();
             }
             "quit" => {
                 // Quit the application
@@ -228,7 +225,7 @@ fn App() -> Element {
             }
             _ => {}
         }
-    });
+    }});
 
     // Create HUD window as a popup
     let config = use_context::<Config>();
@@ -240,7 +237,7 @@ fn App() -> Element {
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
 
-        // Main app is just a hidden tray container
-        div { style: "display: none;", "Tray app" }
+        // Main app is now the logs window
+        LogsWindow {}
     }
 }
