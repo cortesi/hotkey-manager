@@ -26,6 +26,37 @@ use hotkey_manager::Server;
 use std::{env, fs, process};
 use tracing::{debug, error, info, Level};
 
+fn get_config_path() -> String {
+    match env::var("HOTKI_CONFIG") {
+        Ok(path) => path,
+        Err(_) => {
+            // Default to ~/.hotki.ron
+            match env::var("HOME") {
+                Ok(home) => format!("{home}/.hotki.ron"),
+                Err(_) => {
+                    error!("Error: Neither HOTKI_CONFIG nor HOME environment variables are set");
+                    error!("Please set HOTKI_CONFIG to the path of your RON configuration file");
+                    error!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
+                    process::exit(1);
+                }
+            }
+        }
+    }
+}
+
+fn get_config_path_safe() -> Option<String> {
+    match env::var("HOTKI_CONFIG") {
+        Ok(path) => Some(path),
+        Err(_) => {
+            // Default to ~/.hotki.ron
+            match env::var("HOME") {
+                Ok(home) => Some(format!("{home}/.hotki.ron")),
+                Err(_) => None,
+            }
+        }
+    }
+}
+
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
@@ -69,25 +100,7 @@ fn main() {
     } else {
         // Run GUI mode
         // Load config from environment variable or default to ~/.hotki.ron
-        let config_path = match env::var("HOTKI_CONFIG") {
-            Ok(path) => path,
-            Err(_) => {
-                // Default to ~/.hotki.ron
-                match env::var("HOME") {
-                    Ok(home) => format!("{home}/.hotki.ron"),
-                    Err(_) => {
-                        error!(
-                            "Error: Neither HOTKI_CONFIG nor HOME environment variables are set"
-                        );
-                        error!(
-                            "Please set HOTKI_CONFIG to the path of your RON configuration file"
-                        );
-                        error!("Example: HOTKI_CONFIG=/path/to/config.ron hotki");
-                        process::exit(1);
-                    }
-                }
-            }
-        };
+        let config_path = get_config_path();
 
         let config_content = match fs::read_to_string(&config_path) {
             Ok(content) => {
@@ -195,26 +208,15 @@ fn App() -> Element {
         match event.id().as_ref() {
             "reveal" => {
                 debug!("Reveal config in Finder clicked");
-                // Get the actual config path using the same logic as config loading
-                let config_path = match env::var("HOTKI_CONFIG") {
-                    Ok(path) => path,
-                    Err(_) => {
-                        // Default to ~/.hotki.ron
-                        match env::var("HOME") {
-                            Ok(home) => format!("{home}/.hotki.ron"),
-                            Err(_) => {
-                                error!("Cannot determine config path: HOME environment variable not set");
-                                return;
-                            }
-                        }
-                    }
-                };
-
-                // Use the 'open' command to reveal the file in Finder
-                let _ = std::process::Command::new("open")
-                    .arg("-R") // -R flag reveals the file in Finder
-                    .arg(&config_path)
-                    .spawn();
+                if let Some(config_path) = get_config_path_safe() {
+                    // Use the 'open' command to reveal the file in Finder
+                    let _ = std::process::Command::new("open")
+                        .arg("-R") // -R flag reveals the file in Finder
+                        .arg(&config_path)
+                        .spawn();
+                } else {
+                    error!("Cannot determine config path: HOME environment variable not set");
+                }
             }
             "logs" => {
                 debug!("Logs menu item clicked");
