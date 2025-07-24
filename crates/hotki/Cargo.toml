@@ -20,7 +20,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.25"
+cocoa = "0.26"
 objc = "0.2"
 
 [features]
