@@ -100,7 +100,7 @@ impl Server {
         // Run the event loop on the main thread
         info!("Starting tao event loop...");
         event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Poll;
+            *control_flow = ControlFlow::Wait;
 
             // Check for shutdown
             if shutdown_requested.load(Ordering::SeqCst) {
