@@ -15,7 +15,7 @@ use dioxus::{
             menu::{Menu, MenuItem, PredefinedMenuItem},
             Icon,
         },
-        use_muda_event_handler, use_window, window, Config as DioxusConfig, WindowCloseBehaviour,
+        use_muda_event_handler, window, Config as DioxusConfig, WindowCloseBehaviour,
     },
     prelude::*,
     LaunchBuilder,
@@ -188,14 +188,14 @@ fn LogsApp() -> Element {
         let (width, height) = img.dimensions();
         let rgba_data = img.into_raw();
 
-        let tray_icon = init_tray_icon(
+        let ticon = init_tray_icon(
             tray_menu.clone(),
             Some(Icon::from_rgba(rgba_data, width, height).unwrap()),
         );
 
-        tray_icon.set_menu(Some(Box::new(tray_menu)));
-        tray_icon.set_show_menu_on_left_click(true);
-        let _ = tray_icon.set_tooltip(Some("Hotki"));
+        ticon.set_menu(Some(Box::new(tray_menu.clone())));
+        ticon.set_show_menu_on_left_click(false); // Disable default menu on left-click
+        let _ = ticon.set_tooltip(Some("Hotki"));
 
         debug!("Tray icon initialized");
     });

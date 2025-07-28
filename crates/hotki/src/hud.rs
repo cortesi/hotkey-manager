@@ -1,7 +1,6 @@
 use dioxus::{
     desktop::{
-        use_window, Config as DioxusConfig, DesktopService, LogicalPosition, LogicalSize,
-        WindowBuilder,
+        window, Config as DioxusConfig, DesktopService, LogicalPosition, LogicalSize, WindowBuilder,
     },
     prelude::*,
 };
@@ -18,7 +17,6 @@ use crate::config::{Config, Pos};
 
 const WINDOW_WIDTH: f64 = 400.0;
 const WINDOW_PADDING: f64 = 20.0;
-const AUTO_HIDE_TIMEOUT_MS: u64 = 3000; // 3 seconds
 
 /// Calculates the exact window height needed to contain the HUD content without clipping.
 ///
@@ -134,6 +132,7 @@ fn setup_hud_window(window: &Rc<DesktopService>) {
     window.set_visible_on_all_workspaces(true);
     window.set_visible(false);
     window.set_closable(true);
+    window.set_cursor_visible(false);
 }
 
 /// Position and size the window based on current content and configuration
@@ -195,11 +194,7 @@ fn handle_triggered_key(
             // Update current keys after handling
             let keys = state.keymode_state.read().keys();
             state.current_keys.set(keys.clone());
-
-            // Hide current window
             window.set_visible(false);
-
-            // Request rebind
             state.should_rebind.set(true);
 
             // Check depth to show/hide window
@@ -304,7 +299,6 @@ async fn handle_server_connection(
             // Get connection and use it
             match client.connection() {
                 Ok(connection) => {
-                    // Event loop (includes initial key binding)
                     let mut state = HudState {
                         keymode_state,
                         current_keys,
@@ -313,8 +307,6 @@ async fn handle_server_connection(
                         should_rebind,
                     };
                     run_event_loop(connection, &window, &initial_config, &mut state).await;
-
-                    // Disconnect on exit
                     let _ = client.disconnect(true).await;
                 }
                 Err(e) => {
@@ -332,7 +324,6 @@ async fn handle_server_connection(
 
 #[component]
 pub fn HudWindow() -> Element {
-    let window = use_window();
     let initial_config = use_context::<Config>();
 
     let keymode_state = use_signal(|| State::new(initial_config.keys.clone()));
@@ -342,21 +333,17 @@ pub fn HudWindow() -> Element {
     let should_rebind = use_signal(|| false);
 
     // Configure the HUD window properties
-    use_effect({
-        let window = window.clone();
+    use_hook({
         move || {
-            setup_hud_window(&window);
+            setup_hud_window(&window());
         }
     });
 
     // Connect to hotkey server and handle events
     use_coroutine({
-        let window = window.clone();
-
         move |_: UnboundedReceiver<()>| {
-            let window = window.clone();
             handle_server_connection(
-                window,
+                window(),
                 initial_config.clone(),
                 keymode_state,
                 current_keys,
@@ -369,21 +356,13 @@ pub fn HudWindow() -> Element {
 
     // Monitor window visibility and auto-hide when depth is 0
     use_coroutine({
-        let window = window.clone();
         move |_: UnboundedReceiver<()>| {
-            let window = window.clone();
             async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
                     // Only auto-hide if keymode depth is 0
-                    if window.is_visible() && keymode_state.read().depth() == 0 {
-                        tokio::time::sleep(std::time::Duration::from_millis(AUTO_HIDE_TIMEOUT_MS))
-                            .await;
-                        // Check again in case depth changed while waiting
-                        if window.is_visible() && keymode_state.read().depth() == 0 {
-                            window.set_visible(false);
-                        }
+                    if window().is_visible() && keymode_state.read().depth() == 0 {
+                        window().set_visible(false);
                     }
                 }
             }
@@ -431,7 +410,7 @@ pub fn HudWindow() -> Element {
 }
 
 /// Create the HUD window as a popup
-pub fn create_hud_window(config: crate::config::Config) {
+pub fn create_hud_window(config: Config) {
     let window = dioxus::desktop::window();
     let window_config = DioxusConfig::new().with_window(
         WindowBuilder::new()

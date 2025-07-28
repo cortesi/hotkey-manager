@@ -2197,6 +2197,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "tray-icon",
 ]
 
 [[package]]
