@@ -15,7 +15,7 @@ use dioxus::{
             menu::{Menu, MenuItem, PredefinedMenuItem},
             Icon,
         },
-        use_muda_event_handler, use_window, Config as DioxusConfig,
+        use_muda_event_handler, use_window, window, Config as DioxusConfig, WindowCloseBehaviour,
     },
     prelude::*,
     LaunchBuilder,
@@ -133,9 +133,11 @@ fn main() {
             .with_visible(false) // Hide on startup
             .with_decorations(true)
             .with_closable(true);
+
         let dioxus_config = DioxusConfig::new()
             .with_window(window_builder)
             .with_disable_context_menu(true)
+            .with_exits_when_last_window_closes(false)
             .with_custom_event_handler(|_event, event_loop_target| {
                 // Set activation policy to Accessory on macOS to prevent dock icon
                 #[cfg(target_os = "macos")]
@@ -157,10 +159,11 @@ fn main() {
 
 #[component]
 fn LogsApp() -> Element {
-    let window = use_window();
+    use_hook(|| {
+        // Set the close behavior for the main window
+        // This will hide the window instead of closing it when the user clicks the close button
+        window().set_close_behavior(WindowCloseBehaviour::WindowHides);
 
-    // Initialize system tray icon
-    use_effect(move || {
         // Create a simple tray menu
         let tray_menu = Menu::new();
 
@@ -199,33 +202,33 @@ fn LogsApp() -> Element {
 
     // Handle tray menu click events
     use_muda_event_handler({
-        let window = window.clone();
         move |event| {
-        match event.id().as_ref() {
-            "reveal" => {
-                debug!("Reveal config in Finder clicked");
-                if let Some(config_path) = get_config_path_safe() {
-                    // Use the 'open' command to reveal the file in Finder
-                    let _ = std::process::Command::new("open")
-                        .arg("-R") // -R flag reveals the file in Finder
-                        .arg(&config_path)
-                        .spawn();
-                } else {
-                    error!("Cannot determine config path: HOME environment variable not set");
+            match event.id().as_ref() {
+                "reveal" => {
+                    debug!("Reveal config in Finder clicked");
+                    if let Some(config_path) = get_config_path_safe() {
+                        // Use the 'open' command to reveal the file in Finder
+                        let _ = std::process::Command::new("open")
+                            .arg("-R") // -R flag reveals the file in Finder
+                            .arg(&config_path)
+                            .spawn();
+                    } else {
+                        error!("Cannot determine config path: HOME environment variable not set");
+                    }
                 }
+                "logs" => {
+                    debug!("Logs menu item clicked");
+                    window().set_visible(true);
+                    window().set_focus();
+                }
+                "quit" => {
+                    // Quit the application
+                    process::exit(0);
+                }
+                _ => {}
             }
-            "logs" => {
-                debug!("Logs menu item clicked");
-                window.set_visible(true);
-                window.set_focus();
-            }
-            "quit" => {
-                // Quit the application
-                process::exit(0);
-            }
-            _ => {}
         }
-    }});
+    });
 
     // Create HUD window as a popup
     let config = use_context::<Config>();
